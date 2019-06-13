@@ -18,6 +18,7 @@ doc_title: 'Improving Extensibility in afw.image.Exposure and Replacing afw.tabl
 # Author names, ordered as a list. Each author name should be formatted as 'First Last'
 authors:
   - 'Krzysztof Findeisen'
+  - 'Jim Bosch'
 
 # Current document revision date, YYYY-MM-DD
 # Only set this field if you need to manually fix the revision date;
@@ -34,7 +35,7 @@ authors:
 # doi: 10.5281/zenodo.#####
 
 # Copyright statement
-copyright: '2019, Association of Universities for Research in Astronomy'
+copyright: '2019, The Trustees of Princeton University, University of Washington'
 
 # Description. A short, 1-2 sentence statemement used by document indices.
 description: 'A design study for improving the persistence of Stack classes, particularly `lsst.afw.image.Exposure` and its components. This note describes the design decisions behind the `lsst.afw.typehandling.GenericMap` class template and explores options for an off-the-shelf persistence framework to replace `lsst.afw.table.io`.'
@@ -51,7 +52,7 @@ url: 'https://dmtn-120.lsst.io'
 
 # LSST Docushare URL, if authoritative versions of this are are stored there.
 # Leave as an empty string or comment out this key if there is no Docushare URL.
-docushare_url: ''
+# docushare_url: ''
 
 # GitHub repo URL
 github_url: 'https://github.com/lsst-dm/dmtn-120'
