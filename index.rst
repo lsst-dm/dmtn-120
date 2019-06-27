@@ -69,6 +69,35 @@ Our proposal to address these problems (which is already partly implemented) sta
 To go further, and allow Python-implemented :class:`~lsst.afw.image.Exposure` components, we need to replace ``lsst.afw.table.io`` as the way :class:`~lsst.afw.typehandling.Storable`\ s are persisted, preferably by utilizing a third-party persistence library as much as possible.
 There are of course many third-party persistence libraries we could consider, and these can differ quite substantially.
 
+.. _genericmap:
+
+The Design of GenericMap
+========================
+
+Rationale
+---------
+
+We wish to implement :class:`~lsst.afw.image.ExposureInfo` using a heterogeneous map (string keys to arbitrary objects) to decouple it from the details of what information is associated with an exposure.
+Doing so will allow :class:`~lsst.afw.image.ExposureInfo` to store objects of classes unknown to ``afw``, and allow :class:`~lsst.afw.image.ExposureInfo` to be extended by pipeline or third-party packages without changing its code.
+This concept requires some standardization of keys, but no more so than, for example, FITS header keywords.
+
+At the time of writing, the LSST stack has at least three heterogeneous map types in C++: :class:`lsst.daf.base.PropertySet`, :class:`lsst.daf.base.PropertyList`, and :class:`lsst.pex.policy.Policy` (deprecated).
+However, all these types are specialized for particular roles (e.g., :class:`~lsst.daf.base.PropertyList` is designed to represent FITS headers), and mix heterogeneous mapping with other functions.
+As a result, these classes are difficult to adapt to new use cases.
+In addition, the lack of a common codebase makes these classes difficult to maintain, and the limited type safety makes these classes easy to use incorrectly from both C++ and Python.
+
+:class:`~lsst.afw.typehandling.GenericMap` attempts not only to serve as a suitable back-end for :class:`~lsst.afw.image.ExposureInfo`, but also to address the design problems that prevented the use of :class:`~lsst.daf.base.PropertySet` in this role:
+
+* :class:`~lsst.afw.typehandling.GenericMap` relies on compile-time type safety as much as possible, with safeguards preventing invalid object retrieval in C++ and spurious type errors in Python.
+* :class:`~lsst.afw.typehandling.GenericMap` provides separate interface and implementation classes, allowing mapping types with specific properties (e.g., ordering) to be created without forcing changes in client code.
+  There are already two suggestions for alternatives to the reference implementation.
+* :class:`~lsst.afw.typehandling.GenericMap` provides *only* a heterogeneous mapping with simple set-get behavior.
+  The single responsibility makes :class:`~lsst.afw.typehandling.GenericMap` suitable as a back-end for a variety of applications, including more complex mapping types.
+
+Initially, :class:`lsst.afw.typehandling.GenericMap` will be a component of ``afw`` because it depends, indirectly, on the ``lsst.table.io`` framework.
+However, ``lsst.afw.typehandling`` has no other dependencies on ``afw``.
+Once object persistence is decoupled from ``lsst.table.io``, the entire subpackage can be moved to a lower level in the Stack and :class:`~lsst.afw.typehandling.GenericMap` can be treated as a fundamental LSST type.
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
