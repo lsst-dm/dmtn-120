@@ -85,18 +85,28 @@ At the time of writing, the LSST stack has at least three heterogeneous map type
 However, all these types are specialized for particular roles (e.g., :class:`~lsst.daf.base.PropertyList` is designed to represent FITS headers), and mix heterogeneous mapping with other functions.
 As a result, these classes are difficult to adapt to new use cases.
 In addition, the lack of a common codebase makes these classes difficult to maintain, and the limited type safety makes these classes easy to use incorrectly from both C++ and Python.
-
-:class:`~lsst.afw.typehandling.GenericMap` attempts not only to serve as a suitable back-end for :class:`~lsst.afw.image.ExposureInfo`, but also to address the design problems that prevented the use of :class:`~lsst.daf.base.PropertySet` in this role:
-
-* :class:`~lsst.afw.typehandling.GenericMap` relies on compile-time type safety as much as possible, with safeguards preventing invalid object retrieval in C++ and spurious type errors in Python.
-* :class:`~lsst.afw.typehandling.GenericMap` provides separate interface and implementation classes, allowing mapping types with specific properties (e.g., ordering) to be created without forcing changes in client code.
-  There are already two suggestions for alternatives to the reference implementation.
-* :class:`~lsst.afw.typehandling.GenericMap` provides *only* a heterogeneous mapping with simple set-get behavior.
-  The single responsibility makes :class:`~lsst.afw.typehandling.GenericMap` suitable as a back-end for a variety of applications, including more complex mapping types.
+:class:`~lsst.afw.typehandling.GenericMap` attempts to not only serve as a suitable back-end for :class:`~lsst.afw.image.ExposureInfo`, but also address the design problems that prevented the use of :class:`~lsst.daf.base.PropertySet` in the first place.
 
 Initially, :class:`lsst.afw.typehandling.GenericMap` will be a component of ``afw`` because it depends, indirectly, on the ``lsst.table.io`` framework.
 However, ``lsst.afw.typehandling`` has no other dependencies on ``afw``.
 Once object persistence is decoupled from ``lsst.table.io``, the entire subpackage can be moved to a lower level in the Stack and :class:`~lsst.afw.typehandling.GenericMap` can be treated as a fundamental LSST type.
+
+Design Goals
+------------
+
+We designed and implemented :class:`~lsst.afw.typehandling.GenericMap` while striving to obey the following principles:
+
+* provide both a C++ and a Python API for :class:`~lsst.afw.typehandling.GenericMap`, although it is unlikely that many Python users will use :class:`~lsst.afw.typehandling.GenericMap` directly, rather through classes such as :class:`~lsst.afw.image.ExposureInfo`.
+* support storage of primitive types, as well as LSST classes written in either C++ or Python.
+* provide C++ and Python APIs that are as idiomatic as possible in their respective languages, making full use of pybind11's ability to serve as an API adapter.
+* do not provide any features beyond a heterogeneous mapping with simple set-get behavior.
+  The single responsibility makes :class:`~lsst.afw.typehandling.GenericMap` suitable as a back-end for a variety of applications, including more ornate mapping types.
+* provide separate interface (:class:`~lsst.afw.typehandling.GenericMap` and :class:`~lsst.afw.typehandling.MutableGenericMap`) and implementation classes.
+  An abstract interface makes it easy to create mappings that require specific properties (as :class:`~lsst.daf.base.PropertySet` and :class:`~lsst.daf.base.PropertyList` do) without breaking code for other users, following the open-closed principle.
+  Most code based on :class:`~lsst.afw.typehandling.GenericMap` can be agnostic to the implementation class.
+* rely on compile-time type safety as much as possible, with safeguards preventing invalid element retrieval in C++ and spurious type errors in Python.
+* allow element retrieval without knowing the exact type as which it was stored, so long as the conversion is valid (e.g., superclass vs. subclass, or different sizes of floating-point number).
+  Supporting inexact types is not only user-friendly, it avoids unnecessary coupling between code changes at the points of storage and retrieval (which may be in different packages).
 
 .. .. rubric:: References
 
