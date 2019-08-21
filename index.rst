@@ -175,6 +175,20 @@ Instead, we developed a system similar to the visitors used by :cpp:class:`boost
 In practice the callables are usually private classes with templates or overloaded methods, but in rare cases a generic lambda can be used as well.
 This approach involves considerable boilerplate, but is more natural to users than an API written in terms of :cpp:class:`~std::variant` or some kind of iterator-like proxy.
 
+Python
+^^^^^^
+
+In Python, :class:`~lsst.afw.typehandling.GenericMap` follows the :class:`~collections.abc.Mapping` API almost exactly, aside from the need for homogeneous keys and the specific set of value types imposed by the C++ implementation.
+Operations that would violate these constraints raise :class:`TypeError`.
+As in C++, LSST-specific types can only be stored in a :class:`~lsst.afw.typehandling.GenericMap` if they inherit from :class:`~lsst.afw.typehandling.Storable`.
+However, these types need not be implemented in C++; :class:`~lsst.afw.typehandling.Storable` is designed to be subclassed by Python types as well.
+
+In C++, :class:`~lsst.afw.typehandling.GenericMap` is a class template parametrized by the key type.
+Each specialization has its own pybind11 wrapper, but these wrappers are hidden by an :class:`lsst.utils.TemplateMeta` facade.
+Attempts to construct a :class:`~lsst.afw.typehandling.GenericMap` in Python will infer the key type from any input data, so most users need not specify a key type explicitly.
+
+Since the compile-time type safety provided by :cpp:class:`lsst::afw::typehandling::Key` is irrelevant in Python, :cpp:class:`~lsst::afw::typehandling::Key` does not have a pybind11 wrapper.
+Instead, all :class:`~lsst.afw.typehandling.GenericMap` methods take the underlying key type (e.g., a string), and the pybind11 code expresses the operations in terms of :cpp:class:`~lsst::afw::typehandling::Key`-based equivalents.
 
 .. .. rubric:: References
 
