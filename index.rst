@@ -108,6 +108,74 @@ We designed and implemented :class:`~lsst.afw.typehandling.GenericMap` while str
 * allow element retrieval without knowing the exact type as which it was stored, so long as the conversion is valid (e.g., superclass vs. subclass, or different sizes of floating-point number).
   Supporting inexact types is not only user-friendly, it avoids unnecessary coupling between code changes at the points of storage and retrieval (which may be in different packages).
 
+
+The GenericMap and MutableGenericMap APIs
+-----------------------------------------
+
+The design of :class:`~lsst.afw.typehandling.GenericMap` was inspired by a similar class that K. Findeisen wrote in Java, but had to make a number of compromises to accommodate an implementation in C++, Python, and pybind11.
+
+While :class:`~lsst.afw.typehandling.GenericMap` was originally conceived as a class that could store values of *any* type, this proved incompatible with the need for a pybind11 wrapper and the desire for an idiomatic Python API.
+In particular, unless ``__getitem__`` takes type information as part of its input, it needs a finite set of types it can test in C++ (the current implementation does so implicitly through a pybind11 wrapper for ``boost::variant``).
+The final :class:`~lsst.afw.typehandling.GenericMap` supports values of built-in types as well as :class:`~lsst.afw.typehandling.Storable`, an interface that can be added as a mixin to any LSST class.
+
+Inspired by the Python distinction between :class:`~collections.abc.Mapping` and :class:`~collections.abc.MutableMapping`, we provide separate interfaces for reading (:class:`~lsst.afw.typehandling.GenericMap`) and writing (:class:`~lsst.afw.typehandling.MutableGenericMap`).
+
+C++
+^^^
+
+The C++ API is loosely based on the standard library mapping interface (taken as the intersection of the C++14 APIs for :cpp:class:`std::map` and :cpp:class:`std::unordered_map`).
+:class:`~lsst.afw.typehandling.GenericMap` omits standard methods that would have paradoxical or surprising behavior when generalized to heterogeneous values.
+
+The first level of type-safety is provided by a :cpp:class:`lsst::afw::typehandling::Key` class template, which combines a nominal key (e.g., a string) with the required type of the value.
+:cpp:class:`~lsst::afw::typehandling::Key` objects are lightweight values, and can be passed around or created on the fly as easily as the underlying key type.
+
+The original design for :class:`~lsst.afw.typehandling.GenericMap` called for the map to expose public method templates (e.g., ``void set(Key<K, T> const &, T const &)``) that would provide compile-time type safety.
+Since method templates cannot be overridden in C++, these public templates would be implemented in terms of protected methods (e.g., ``void _set(Key<K, Storable> const &, Storable const &)``), which subclasses could use to define how the key-value pairs were stored and managed.
+
+Prototyping revealed that this design had several major issues:
+
+1. The process of delegating calls to a protected non-template method would strip away any information about *which* subclass of :class:`~lsst.afw.typehandling.Storable` was being stored.
+   A careless implementation would make it legal to store a :class:`~lsst.afw.geom.SkyWcs` object and then ask for it as a :class:`~lsst.afw.image.Psf`, or vice versa.
+2. An implementation of ``__getitem__`` would need to explicitly enumerate and test all possible value types, particularly all subclasses of :class:`~lsst.afw.typehandling.Storable`.
+   This would, at the very least, introduce elaborate pybind11 code that would need to be kept in sync with the class definition, but would not have an obvious failure mode if the two files diverged.
+3. The protected API would require multiple methods per supported type, including integers, floating point numbers, strings, and :class:`~lsst.afw.typehandling.Storable` (and ``const``/non-``const`` and value/smart pointer variants thereof).
+   This would impose an enormous writing and maintenance burden on subclass authors.
+
+We tried several solutions to these problems.
+One of the simplest is to drop the interface-oriented architecture, and with it the need to delegate to specialized protected methods.
+However, we did not pursue this approach because it did not solve the problem of how to implement ``__getitem__``, and the eventual solution to that problem made an interface-oriented design acceptable again.
+
+One option to implement ``__getitem__`` without hardcoding a list of value types is to design :cpp:class:`~lsst::afw::typehandling::Key` objects to allow retrieval by superclasses of the desired type.
+However, we could not find a satisfactory implementation of this approach in C++.
+While it is possible to use templates to express questions like "Does a ``Key<Storable>`` match a ``Key<SkyWcs>``?", storing mixed :cpp:class:`~lsst::afw::typehandling::Key` types would require removing the compile-time information that enables such comparisons.
+Adding run-time type information to :cpp:class:`~lsst::afw::typehandling::Key` would solve the information loss problem, but C++'s support for RTTI is very limited, and the standard API only allows tests for exact type equality.
+
+The solution we adopted is to no longer store type information -- as a :cpp:class:`~lsst::afw::typehandling::Key` object or any other form -- in a :class:`~lsst.afw.typehandling.GenericMap`.
+All queries internally pass the stored value through dynamic casting, which accesses RTTI in an implementation-dependent way that does account for subclasses.
+This approach solves all the original design issues, at the cost of making :class:`~lsst.afw.typehandling.GenericMap` no longer strictly type-safe:
+
+1. Queries for an object of the wrong type are blocked at the casting step.
+2. ``__getitem__`` can retrieve any :class:`~lsst.afw.typehandling.Storable` by considering only ``Key<Storable>`` and ``Key<shared_ptr<Storable>>``.
+3. The protected subclass API is greatly simplified because it no longer needs to accommodate a variety of :cpp:class:`~lsst::afw::typehandling::Key` classes.
+
+In practice, the desire for type-unsafe storage was handled by making all protected methods work in terms of untyped keys and :cpp:class:`boost::variant` values.
+Passing by :cpp:class:`~boost::variant` provides a convenient way to express, in code, which values are supported by :class:`~lsst.afw.typehandling.GenericMap` without committing subclasses to any particular storage mechanism.
+Unfortunately, because :cpp:class:`boost::variant` cannot distinguish between ``const`` and non-``const`` versions of the same type, :class:`~lsst.afw.typehandling.GenericMap` does not currently support ``const`` values for any type except ``shared_ptr<Storable>``.
+We expect to lift this restriction once we can migrate to :cpp:class:`std::variant` in C++17.
+
+After the nature of :class:`~lsst.afw.typehandling.GenericMap`'s type handling, the largest remaining problem was how to handle shared pointers, which are used extensively by :class:`~lsst.afw.image.ExposureInfo`.
+In keeping with C++ idioms, and in order to correctly handle polymorphism of :class:`~lsst.afw.typehandling.Storable`, :class:`~lsst.afw.typehandling.GenericMap` returns most values by reference.
+However, because the implementation holds pointers as ``shared_ptr<Storable>`` yet must return them as pointers of the correct type, its accessors create a new pointer of the desired type, which cannot be returned by reference.
+
+We chose to return smart pointers alone by value, though the inconsistency with other value types makes it much harder to write type-agnostic code against :class:`~lsst.afw.typehandling.GenericMap`.
+The alternatives were to return everything by value, which would make it impossible to support non-smart-pointer storage of :class:`~lsst.afw.typehandling.Storable`, or to always return shared pointers as ``shared_ptr<Storable>``, which would force users to perform unsafe casts in their code.
+
+It is not practical to design an idiomatic C++ API for iterating over a :class:`~lsst.afw.typehandling.GenericMap`.
+Instead, we developed a system similar to the visitors used by :cpp:class:`boost::variant` and :cpp:class:`std::variant`, where the user represents the body of the loop by a callable object that accepts values of any supported type.
+In practice the callables are usually private classes with templates or overloaded methods, but in rare cases a generic lambda can be used as well.
+This approach involves considerable boilerplate, but is more natural to users than an API written in terms of :cpp:class:`~std::variant` or some kind of iterator-like proxy.
+
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
