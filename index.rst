@@ -190,6 +190,46 @@ Attempts to construct a :class:`~lsst.afw.typehandling.GenericMap` in Python wil
 Since the compile-time type safety provided by :cpp:class:`lsst::afw::typehandling::Key` is irrelevant in Python, :cpp:class:`~lsst::afw::typehandling::Key` does not have a pybind11 wrapper.
 Instead, all :class:`~lsst.afw.typehandling.GenericMap` methods take the underlying key type (e.g., a string), and the pybind11 code expresses the operations in terms of :cpp:class:`~lsst::afw::typehandling::Key`-based equivalents.
 
+.. _storable:
+
+The Design of Storable
+======================
+
+Rationale
+---------
+
+As noted in :ref:`genericmap`, we were unable to develop a design for :class:`lsst.afw.typehandling.GenericMap` that could accept objects of any type.
+We introduce the :class:`lsst.afw.typehandling.Storable` interface to let :class:`~lsst.afw.typehandling.GenericMap` interact with LSST-specific types.
+Any user-defined class must inherit from :class:`~lsst.afw.typehandling.Storable` to be stored in a :class:`~lsst.afw.typehandling.GenericMap`, and C++ visitors for :class:`~lsst.afw.typehandling.GenericMap` must support the case where a value is :class:`~lsst.afw.typehandling.Storable`.
+
+To make it easier to work with :class:`~lsst.afw.typehandling.Storable` objects in C++, the interface declares several standard methods.
+These add some clutter to implementation classes that don't define them, but make it possible to persist :class:`~lsst.afw.typehandling.Storable` objects and perform generic object manipulation without the need for unsafe casting in user code.
+
+Design Goals
+------------
+
+We designed :class:`~lsst.afw.typehandling.Storable` to meet the following goals:
+
+* support subclasses written in either C++ or Python
+* support the smallest reasonable subset of generic operations, chosen to be equality comparison, hashing, copying, and string representation
+* do not conflict with existing APIs of classes that may be retrofitted with :class:`~lsst.afw.typehandling.Storable`
+
+The Storable API
+----------------
+
+:class:`lsst.afw.typehandling.Storable` is a subclass of :cpp:class:`lsst::afw::table::io::Persistable`, though it does not require that persistence be implemented.
+This ensures that :class:`lsst.afw.image.ExposureInfo` can persist :class:`~lsst.afw.typehandling.Storable` objects using the same mechanism as (most of) its original members.
+
+:class:`lsst.afw.typehandling.Storable` provides methods ``equals``, ``hash_value``, ``cloneStorable``, and ``toString`` to allow comparisons to other :class:`~lsst.afw.typehandling.Storable`, hashing, copying, and printing from C++.
+``equals`` defaults to object identity comparisons, while the others throw an exception by default.
+The method names, including the underscore in ``hash_value``, were chosen to avoid collisions with existing APIs (e.g., a ``clone`` method that returns a smart pointer to a more specific type than :class:`~lsst.afw.typehandling.Storable`).
+We preferred this approach over a more elaborate delegation system, such as that used in the AST library and many ``table::io`` classes, because the latter approach requires that authors remember to write a new method for each subclass.
+
+:class:`~lsst.afw.typehandling.Storable` can be inherited from by Python classes, which should override its methods where appropriate.
+The inheritance is handled using the `pybind11 API for Python inheritance <https://pybind11.readthedocs.io/en/stable/advanced/classes.html#overriding-virtual-functions-in-python>`_, including a "trampoline" helper class.
+While the helper class has hooks for all of :class:`~lsst.afw.typehandling.Storable`'s C++ methods, :class:`~lsst.afw.typehandling.Storable`'s pybind11 wrapper does not include them to keep the Python API from being cluttered by default implementations.
+In practice, C++ classes that implement these operations declare them in their own wrappers anyway, and in a more Pythonic form (e.g., ``__eq__`` rather than ``equals``).
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
