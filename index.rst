@@ -230,6 +230,79 @@ The inheritance is handled using the `pybind11 API for Python inheritance <https
 While the helper class has hooks for all of :class:`~lsst.afw.typehandling.Storable`'s C++ methods, :class:`~lsst.afw.typehandling.Storable`'s pybind11 wrapper does not include them to keep the Python API from being cluttered by default implementations.
 In practice, C++ classes that implement these operations declare them in their own wrappers anyway, and in a more Pythonic form (e.g., ``__eq__`` rather than ``equals``).
 
+.. _exposureinfo:
+
+The Design of ExposureInfo
+==========================
+
+Rationale
+---------
+
+:class:`lsst.afw.image.ExposureInfo` is one of the most fundamental classes in the LSST science pipelines, and any breaking changes to it will have far-reaching effects.
+We will almost certainly need to break :class:`~lsst.afw.image.ExposureInfo` when adopting a new persistence framework, as the ``lsst.afw.table.io`` framework is built into both the API and the persisted form.
+Therefore, we avoided introducing breaking changes in the conversion to a :class:`lsst.afw.typehandling.GenericMap`-based implementation, to keep users from having to change their code or data twice.
+
+Design Goals
+------------
+
+We implemented our changes to :class:`~lsst.afw.image.ExposureInfo` based on the following goals:
+
+* do not change the behavior of any existing method on :class:`~lsst.afw.image.ExposureInfo`, particularly component retrieval methods like :meth:`~lsst.afw.image.ExposureInfo.getSkyWcs`.
+* keep the new code compatible with the previous :class:`~lsst.afw.image.Exposure` file format
+* keep the :class:`~lsst.afw.image.Exposure` file format readable by old science pipelines code.
+  In practice, this means that components stored in "archives" can be rearranged and new header keywords can be added, but no other changes are possible.
+* minimize the number of new API elements added to allow operations on unknown components
+
+ExposureInfo Code Changes
+-------------------------
+
+:class:`lsst.afw.image.ExposureInfo` now contains a :class:`MutableGenericMap\<string> <lsst.afw.typehandling.MutableGenericMap>` that stores the :class:`~lsst.afw.image.ExposureInfo` components.
+Neither this interface nor its implementation class (at the time of writing, a :class:`~lsst.afw.typehandling.SimpleGenericMap`) are exposed to client code.
+However, the C++ API for inserting and removing components does take a :cpp:class:`lsst::afw::typehandling::Key`, as there is no better way to make these methods type-safe.
+In Python, as for :class:`~lsst.afw.typehandling.GenericMap`, the key arguments are simple strings.
+
+While :class:`~lsst.afw.typehandling.GenericMap` can store both :class:`~lsst.afw.typehandling.Storable`\ s and shared pointers to :class:`~lsst.afw.typehandling.Storable`, it cannot preserve this distinction after persistence.
+While the ``lsst.table.io`` framework can persist both :cpp:class:`lsst::table::io::Persistable` and shared pointers to :cpp:class:`~lsst::table::io::Persistable`, it can only depersist shared pointers, so the information on whether an element was originally retrievable by reference or by shared pointer is lost.
+To avoid inconsistencies in saving and restoring :class:`~lsst.afw.image.Exposure`\ s, we require that generic components be pointers to :class:`~lsst.afw.typehandling.Storable` until we can change to a more flexible persistence framework.
+
+All but three of :class:`~lsst.afw.image.ExposureInfo`'s traditional components have been migrated to :class:`~lsst.afw.typehandling.GenericMap` storage.
+The three exceptions are:
+
+* The image metadata are stored in a :class:`lsst.daf.base.PropertySet`, which cannot inherit from :class:`~lsst.afw.typehandling.Storable` because it's in a dependency of ``lsst.afw``.
+* The visit info is stored inside the metadata rather than as a separate component, so it must continue to be written there for backward compatibility.
+  We chose not to duplicate it (storing both as metadata and as a :class:`~lsst.afw.typehandling.Storable`) for simplicity.
+* The filter is stored inside the metadata, like the visit info.
+  In addition, :class:`~lsst.afw.image.ExposureInfo`'s filter-related methods pass and return a filter object, not a shared pointer, so we cannot migrate it without either changing the existing API to use shared pointers or introducing inconsistencies between, for example, the return types of :meth:`~lsst.afw.image.ExposureInfo.getFilter` and :meth:`~lsst.afw.image.ExposureInfo.getComponent`.
+
+The original access methods for the migrated components were very inconsistent in their use of ``const``, with the majority using ``shared_ptr<T const>``, some using ``shared_ptr<T>``, and some using ``const`` inconsistently between input and output.
+Since:
+
+* :class:`~lsst.afw.typehandling.GenericMap` cannot support both shared pointers to ``const`` and shared pointers to non-``const`` before C++17,
+* keeping the existing mixture would require lots of (potentially unsafe) casts both in :class:`~lsst.afw.image.ExposureInfo` and in client code,
+* changing the inputs to non-``const`` would likely break client code, and
+* changing the outputs to ``const`` would be relatively safe,
+
+we chose to standardize both inputs and outputs to ``const``, and to modify :class:`~lsst.afw.typehandling.GenericMap` to hold shared pointers to ``const``.
+Standardizing output to ``const`` was a breaking change to the C++ interfaces for :meth:`~lsst.afw.image.ExposureInfo.getPsf` and :meth:`~lsst.afw.image.ExposureInfo.getCoaddInputs`, but there is no C++ code in science pipelines that stores the results as pointer to non-``const``, so the change caused no problems to our knowledge.
+
+ExposureInfo Persistence Changes
+--------------------------------
+
+The :class:`lsst.afw.image.Exposure` persistence format stores :class:`~lsst.afw.image.ExposureInfo` components in binary "archives" in FITS extensions, with the extension number stored in the header using keys like ``SKYWCS_ID``.
+Generic components generalize this format by creating a header key from the component's key string (e.g., ``MYCOMPONENT_ID``).
+The extensions containing generic components are not guaranteed to be arranged in any particular order, but neither the original nor the generalized formats depend on ordering.
+
+The above conventions, combined with the need for backwards compatibility, imply that components that have been migrated to generic storage must have a component key that matches the original header key (e.g., ``SKYWCS`` for WCS information).
+The awkward names add some inconvenience to :class:`~lsst.afw.image.ExposureInfo` clients, but to do otherwise requires finding a way to both generate an independent FITS header key in a backward-compatible way, and to store the component key inside the archive in a backward-compatible way.
+Basing the FITS header key on the component key was deemed a less error-prone solution.
+
+While the FITS header keys listing the extensions could previously be hardcoded into :class:`~lsst.afw.image.ExposureInfo`'s depersistence code, the depersistence code for generic components must search the header for keys of the expected format.
+Queries for ``[arbitrary string]_ID`` are vulnerable to false positives from header keys like ``VISIT_ID`` or ``CCD_ID``; if associated values are small integers, then there is no way to  distinguish such keys from real archive IDs.
+
+We therefore added a second convention for archive IDs, of the form ``ARCHIVE_ID_[component]``.
+Old components are depersisted using the ``*_ID`` syntax, to retain compatibility with old files, while new ones are depersisted using ``ARCHIVE_ID_*``.
+The new code strips sets of header keywords are stripped when they are detected; new files read using old code may have leftover ``ARCHIVE_ID_`` keywords.
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
