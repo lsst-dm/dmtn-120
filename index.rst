@@ -303,6 +303,121 @@ We therefore added a second convention for archive IDs, of the form ``ARCHIVE_ID
 Old components are depersisted using the ``*_ID`` syntax, to retain compatibility with old files, while new ones are depersisted using ``ARCHIVE_ID_*``.
 The new code strips sets of header keywords are stripped when they are detected; new files read using old code may have leftover ``ARCHIVE_ID_`` keywords.
 
+.. _newpersistence:
+
+Alternative Persistence Frameworks
+==================================
+
+Rationale
+---------
+
+Adoption Constraints
+--------------------
+
+We are looking for a persistence framework that meets the following criteria:
+
+* It must have a GPL3-compatible license.
+* It must allow persistence of both C++ and Python objects.
+* It must allow persistence to multiple formats, including FITS, JSON, and YAML.
+  Compatibility with JSON and YAML implies that the framework must be able to represent objects as key-value pairs.
+* It must allow versioning of persistence formats.
+* It must allow unpersistence of old files written with the ``lsst.afw.table.io`` framework.
+* It must allow efficient storage of arrays, particularly images, but not necessarily in all formats.
+* It must correctly depersist polymorphic types that are stored in C++ by their base class (e.g., :class:`lsst.afw.detection.Psf`), reproducing their exact type (e.g., :class:`lsst.meas.algorithms.ImagePsf`).
+* It must be able to read in part of a persisted object, such as only the WCS from a persisted :class:`~lsst.afw.image.Exposure`.
+* It should be able to store relationships between objects that refer to each other.
+  This would allow us to separately store composite objects and their components, such as the individual PSFs used to create a :class:`lsst.meas.algorithms.CoaddPsf`, simplifying provenance tracking.
+* It should persist files in a human-readable form, where practical, as a debugging aid.
+
+We do not have any expectation that we should be able to easily change persistence frameworks in the future.
+
+Option: Avro
+------------
+
+.. _Avro: https://avro.apache.org/
+
+`Avro`_ is a table-like persistence library provided by Apache.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+In C++, the schemas are typically compiled into proxy classes, whose data are then accessed using object member syntax.
+In Python, no code generation is required, and data are represented using :class:`dict`-like objects.
+Avro uses a schema definition language based on JSON, but as the notation is similar in spirit to :class:`lsst.pipe.base.PipelineTaskConnections`, it should not be a major conceptual burden on LSST developers.
+
+Because of its record-based approach, Avro is best-suited for bulk data: one could store a :class:`~lsst.afw.table.Catalog` very naturally using Avro, but a free compound object like an :class:`~lsst.afw.image.Exposure` would have some overhead (essentially, its persisted form would be a collection of one-row tables).
+
+Avro meets many, but not all, of our criteria:
+
+* It uses the Apache 2.0 license.
+* It has built-in support for both C++ and Python, although the Python API is much better.
+* It has built-in support for JSON, as well as a proprietary format. We can, in principle, support additional formats using stream I/O, but the interfaces do not appear to have been designed for third-party implementations.
+* It supports schema versioning.
+* It may be possible to unpersist ``lsst.afw.table.io`` files by treating it as a custom format.
+* It natively supports arrays of arbitrary type, including numeric primitives.
+* It does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+  Avro makes heavy use of dynamic typing on depersistence, so differences in the persisted form among related classes are not a problem.
+* Its tables are row-oriented, so it does not have any special ability to partially read objects.
+* It does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* In Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
+
+Option: cereal
+--------------
+
+.. _cereal: https://uscilab.github.io/cereal/
+
+.. _Boost Serialization: https://www.boost.org/doc/libs/release/libs/serialization/
+
+The unfortunately-named `cereal`_ is a C++ persistence library provided by the University of Southern California.
+It's similar in style to `Boost Serialization`_, but more lightweight.
+References to objects are passed to an :cpp:class:`cereal::InputArchive` or :cpp:class:`cereal::OutputArchive` object, which calls user-defined methods or functions to handle non-built-in types (these methods usually call the archive recursively).
+
+cereal was not designed for long-term storage, and makes no guarantee that a later version of the library will correctly load a file written by an earlier version.
+We can work around this limitation by locking the Stack's version of cereal.
+
+cereal meets many, but not all, of our criteria:
+
+* It uses the 3-clause BSD license.
+* It does not support languages other than C++.
+  It probably cannot handle pure-Python classes (it needs C++ functions or methods to define the persisted form), but it might be able to handle Python subclasses of a C++ interface like :class:`lsst.afw.typehandling.Storable`.
+* It supports class versioning, using a system similar to that currently used for :class:`~lsst.afw.image.ExposureInfo`.
+* It may be possible to unpersist ``lsst.afw.table.io`` files by treating it as a custom format.
+* It supports raw binary output for individual fields, which can be used to efficiently store arrays.
+* It supports polymorphism, but requires explicit registration of all subclasses.
+  The registration code for a particular class must be aware of all possible archive implementations, making it difficult to add new file formats.
+* It supports "out of order loading" of subobjects in specific archive implementations, including the built-in JSON archive.
+  However, this means that code to partially read objects from other file types would need to be implemented by LSST.
+* It can self-consistently track object relationships, but requires that all objects (such as a :class:`lsst.meas.algorithms.CoaddPsf` and its constituents) be in the same archive.
+  It cannot be used to store such objects in separate files, though we could emulate such functionality by introducing a unique object ID to the persisted form.
+* It supports human-readable key-value pairs, as well as a "simplified" output format for human-redability.
+
+
+Option: FlatBuffer
+------------------
+
+.. _FlatBuffer: http://google.github.io/flatbuffers/
+
+`FlatBuffer`_ is a struct-like persistence library provided by Google.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+The schemas are compiled into proxy classes (in both C++ and Python), whose data are then accesed using object member syntax.
+FlatBuffer uses a custom schema definition language, but as the notation is similar in spirit to :class:`lsst.pipe.base.PipelineTaskConnections`, it should not be a major conceptual burden on LSST developers.
+
+Because the persisted form of each persistable type is represented by a different class, it may be difficult to write generic code against persistables.
+However, FlatBuffer does provide a reflection API for working with generic persisted forms.
+
+FlatBuffer meets some of our criteria:
+
+* It uses the Apache 2.0 license.
+* It has built-in support for both C++ and Python, although Python features are very limited.
+  The C++ API is also cleaner, particularly with vector types.
+* It only natively supports a proprietary file format (though it allows import from JSON).
+  In C++, it may be possible to use reflection to support other formats.
+* It supports schema versioning.
+* It probably cannot unpersist old files, as FlatBuffer makes strict demands on persistence formats in the interest of efficiency.
+* It natively supports arrays of primitive type.
+* It does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does) and using the FlexBuffers feature to avoid knowing the schema a priori.
+* It supports streaming input of large files, at least in C++, but does not support reading only a predetermined part of an object.
+  However, it does depersist at close to disk-limited speed, so partial reads may be less performance-critical.
+* It has native support for object relationships, even among different persisted files.
+* Its persisted form is highly efficient, and therefore not human-readable.
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
