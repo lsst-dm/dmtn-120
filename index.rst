@@ -61,13 +61,13 @@ Our proposal to address these problems (which is already partly implemented) sta
   This augments rather than replaces our existing :class:`~lsst.daf.base.PropertySet` and :class:`~lsst.daf.base.PropertyList` in large part because we want to avoid their behavioral idiosyncracies (especially with respect to vector-valued entries) in order to provide natural interfaces in both C++ and Python (e.g., the :class:`collections.abc.Mapping` API), but also recognize that attempting to change the behavior of the existing classes at this stage would be extremely disruptive.
 
 - Define an interface, :class:`~lsst.afw.typehandling.Storable`, for objects that can be held by :class:`~lsst.afw.typehandling.GenericMap`.
-  This includes basic functionality like stringification, comparisons, and cloning as well as serialization (currently still via ``lsst.afw.table.io``).
+  This includes basic functionality like stringification, comparisons, and cloning as well as persistence (currently still via ``lsst.afw.table.io``).
 
 - Rewrite :class:`~lsst.afw.image.ExposureInfo` (which holds the non-image components of :class:`~lsst.afw.image.Exposure`) to hold its components via :class:`~lsst.afw.typehandling.GenericMap`, allowing any :class:`~lsst.afw.typehandling.Storable` to be attached to an :class:`~lsst.afw.image.Exposure`.
   Once we complete this stage (the one in progress as of this writing), :class:`~lsst.afw.image.Exposure` components could begin to be be defined in any package downstream of ``afw`` (but would still need to be implemented in C++ and use ``lsst.afw.table.io``).
 
-To go further, and allow Python-implemented :class:`~lsst.afw.image.Exposure` components, we need to replace ``lsst.afw.table.io`` as the way :class:`~lsst.afw.typehandling.Storable`\ s are serialized, preferably by utilizing a third-party serialization library as much as possible.
-There are of course many third-party serialization libraries we could consider, and these can differ quite substantially.
+To go further, and allow Python-implemented :class:`~lsst.afw.image.Exposure` components, we need to replace ``lsst.afw.table.io`` as the way :class:`~lsst.afw.typehandling.Storable`\ s are persisted, preferably by utilizing a third-party persistence library as much as possible.
+There are of course many third-party persistence libraries we could consider, and these can differ quite substantially.
 
 .. .. rubric:: References
 
