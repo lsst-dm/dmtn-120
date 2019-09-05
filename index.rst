@@ -418,6 +418,11 @@ FlatBuffer meets some of our criteria:
 * It has native support for object relationships, even among different persisted files.
 * Its persisted form is highly efficient, and therefore not human-readable.
 
+Reccomendations
+---------------
+
+We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``, and are continuing our research into alternatives.
+
 .. .. rubric:: References
 
 .. Make in-text citations with: :cite:`bibkey`.
