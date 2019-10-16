@@ -22,11 +22,11 @@
 The Problem
 ===========
 
-Since about 2013, a handful of poor/lazy/expedient design decisions in ``afw`` have been slowly compounding.
-A full history of the situation can be found in a `community post`_.
+Since about 2013, a handful of poor/expedient design decisions in ``lsst.afw`` have been slowly compounding.
+A full history of the situation can be found in a `Community post`_.
 To summarize,
 
-- We use the :class:`lsst.afw.image.Exposure` class throughout the codebase to aggregate instances of all of the classes that charactize an image - PSFs, WCSs, aperture corrections, photometric calibrations, etc.
+- We use the :class:`lsst.afw.image.Exposure` class throughout the code base to aggregate instances of all of the classes that characterize an image - PSFs, WCSs, aperture corrections, photometric calibrations, etc.
 
 - Because :class:`~lsst.afw.image.Exposure` holds those components via direct C++ composition, they need to live either in ``lsst.afw.image`` or in a package it depends on.
 
@@ -40,14 +40,14 @@ The net result is that a large fraction of our classes must:
 
 Furthermore, the circular dependency between the ``lsst.afw.image`` and ``lsst.afw.table`` subpackages makes the build and particular the Python import order for ``afw`` fragile, leading to hard-to-debug and even harder-to-fix bugs whenever a new :class:`~lsst.afw.image.Exposure`-component class is added.
 
-A related problem - a potentially more serious, but also less clear-cut one - is that ``lsst.afw.table.io`` was never intended to be a long-term or general persistence solution.\ [#general_persistence]_
+A related problem is that ``lsst.afw.table.io`` was never intended to be a long-term or general persistence solution.\ [#general_persistence]_
 It lacks any kind of built-in support for versioning, produces opaque and sometimes inefficient files, involves a lot of boilerplate to use, and is built on top of a bespoke C++ library (``lsst.afw.table`` itself) that presents a maintenance challenge and has I/O performance problems.
 None of these limitations represents a particularly acute problem (we have managed to work around all of them for a while now), but as a persistence framework more or less specifies the on-disk format, significant (i.e., backwards incompatible) changes will become progressively harder to make as we approach operations.
 
-.. _community post: https://community.lsst.org/t/how-the-exposure-class-and-afw-io-wrecked-the-codebase/3384
+.. _Community post: https://community.lsst.org/t/how-the-exposure-class-and-afw-io-wrecked-the-codebase/3384
 
-.. [#general_persistence] ``lsst.afw.table.io`` was written to enable writing :class:`~lsst.meas.algorithms.CoaddPsf` objects into FITS files on an HSC data release deadline, with the expectation that it would someday be replaced by the Data Access Team.
-   That "Data Access" has since been reinterpreted to mean only *science user* data access (i.e., not pipeline data access or data access middleware), and the hence the responsibility for persistence frameworks has essentially fallen through the cracks.
+.. [#general_persistence] ``lsst.afw.table.io`` was written to enable writing :class:`~lsst.meas.algorithms.CoaddPsf` objects into FITS files on an HSC data release deadline, with the expectation that it would later be replaced by the Data Access Team.
+   That "Data Access" has since been reinterpreted to mean only *science user* data access (i.e., not pipeline data access or data access middleware), and the hence the responsibility for persistence frameworks has fallen through the cracks.
 
 
 .. _overview:
@@ -57,8 +57,9 @@ Overview
 
 We've taken the following actions to mitigate the design problems imposed by :class:`~lsst.afw.image.Exposure` and to prepare for future work:
 
-- Add a new heterogenous-type mapping interface and implementation in C++, :class:`~lsst.afw.typehandling.GenericMap`.
-  This augments rather than replaces our existing :class:`~lsst.daf.base.PropertySet` and :class:`~lsst.daf.base.PropertyList` in large part because we want to avoid their behavioral idiosyncracies (especially with respect to vector-valued entries) in order to provide natural interfaces in both C++ and Python (e.g., the :class:`collections.abc.Mapping` API), but also recognize that attempting to change the behavior of the existing classes at this stage would be extremely disruptive.
+- Add a new heterogeneous-type mapping interface and implementation in C++, :class:`~lsst.afw.typehandling.GenericMap`.
+  This is an alternative to rather than a replacement of our existing :class:`~lsst.daf.base.PropertySet` and :class:`~lsst.daf.base.PropertyList` to avoid their behavioral idiosyncrasies (especially with respect to vector-valued entries) and to provide natural interfaces in both C++ and Python (e.g., the :class:`collections.abc.Mapping` API).
+  We also recognize that attempting to change the behavior of the existing classes at this stage would be extremely disruptive.
 
 - Define an interface, :class:`~lsst.afw.typehandling.Storable`, for objects that can be held by :class:`~lsst.afw.typehandling.GenericMap`.
   This includes basic functionality like stringification, comparisons, and cloning as well as persistence (currently still via ``lsst.afw.table.io``).
@@ -66,8 +67,8 @@ We've taken the following actions to mitigate the design problems imposed by :cl
 - Rewrite :class:`lsst.afw.image.ExposureInfo` (which holds the non-image components of :class:`~lsst.afw.image.Exposure`) to hold its components as a map (originally a :class:`~lsst.afw.typehandling.GenericMap`, later replaced with a more specialized type), allowing any :class:`~lsst.afw.typehandling.Storable` to be attached to an :class:`~lsst.afw.image.Exposure`.
   This allows :class:`~lsst.afw.image.Exposure` components to be defined in any package downstream of ``afw`` (but still need to be implemented in C++ and use ``lsst.afw.table.io``).
 
-To go further, and allow Python-implemented :class:`~lsst.afw.image.Exposure` components, we need to replace ``lsst.afw.table.io`` as the way :class:`~lsst.afw.typehandling.Storable`\ s are persisted, preferably by utilizing a third-party persistence library as much as possible.
-There are of course many third-party persistence libraries we could consider, and these can differ quite substantially.
+To go further, and allow Python-implemented :class:`~lsst.afw.image.Exposure` components, we need to replace ``lsst.afw.table.io`` as the way :class:`~lsst.afw.typehandling.Storable`\ s are persisted, preferably using a third-party persistence library as much as possible.
+We finish with a brief review of some candidate libraries.
 
 .. _genericmap:
 
@@ -88,7 +89,7 @@ Our original plan involved a heterogeneous map (i.e., one that stores values of 
 The LSST stack previously had at least three heterogeneous map types in C++: :class:`lsst.daf.base.PropertySet`, :class:`lsst.daf.base.PropertyList`, and :class:`lsst.pex.policy.Policy` (deprecated).
 However, all these types are specialized for particular roles (e.g., :class:`~lsst.daf.base.PropertyList` is designed to represent FITS headers), and mix heterogeneous mapping with other functions.
 As a result, these classes are difficult to adapt to new use cases.
-In addition, the lack of a common codebase makes these classes difficult to maintain, and the limited type safety makes these classes easy to use incorrectly from both C++ and Python.
+In addition, the lack of a common code base makes these classes difficult to maintain, and the limited type safety makes these classes easy to use incorrectly from both C++ and Python.
 :class:`~lsst.afw.typehandling.GenericMap` attempted to not only serve as a suitable back-end for :class:`~lsst.afw.image.ExposureInfo`, but also address the design problems that prevented the use of :class:`~lsst.daf.base.PropertySet` in the first place.
 
 Currently, :class:`lsst.afw.typehandling.GenericMap` is a component of ``afw`` because it depends, indirectly, on the ``lsst.table.io`` framework.
@@ -104,7 +105,7 @@ We designed and implemented :class:`~lsst.afw.typehandling.GenericMap` while str
 * support storage of primitive types, as well as LSST classes written in either C++ or Python.
 * provide C++ and Python APIs that are as idiomatic as possible in their respective languages, making full use of pybind11's ability to serve as an API adapter.
 * do not provide any features beyond a heterogeneous mapping with simple set-get behavior.
-  The single responsibility makes :class:`~lsst.afw.typehandling.GenericMap` suitable as a back-end for a variety of applications, including more ornate mapping types.
+  The single responsibility makes :class:`~lsst.afw.typehandling.GenericMap` suitable as a back-end for a variety of applications, including more ornate mapping types like :class:`~lsst.daf.base.PropertySet`.
 * provide separate interface (:class:`~lsst.afw.typehandling.GenericMap` and :class:`~lsst.afw.typehandling.MutableGenericMap`) and implementation classes.
   An abstract interface makes it easy to create mappings that require specific properties (as :class:`~lsst.daf.base.PropertySet` and :class:`~lsst.daf.base.PropertyList` do) without breaking code for other users, following the open-closed principle.
   Most code based on :class:`~lsst.afw.typehandling.GenericMap` can be agnostic to the implementation class.
@@ -129,13 +130,13 @@ C++
 ^^^
 
 The C++ API is loosely based on the standard library mapping interface (taken as the intersection of the C++14 APIs for :cpp:class:`std::map` and :cpp:class:`std::unordered_map`).
-:class:`~lsst.afw.typehandling.GenericMap` omits standard methods that would have paradoxical or surprising behavior when generalized to heterogeneous values.
+:class:`~lsst.afw.typehandling.GenericMap` omits standard methods that would have paradoxical or surprising behavior when generalized to heterogeneous values, such as the new element created by :cpp:member:`~std::map::operator[]` when a key does not match.
 
 The first level of type-safety is provided by a :cpp:class:`lsst::afw::typehandling::Key` class template, which combines a nominal key (e.g., a string) with the required type of the value.
 :cpp:class:`~lsst::afw::typehandling::Key` objects are lightweight values, and can be passed around or created on the fly as easily as the underlying key type.
 
 The original design for :class:`~lsst.afw.typehandling.GenericMap` called for the map to expose public method templates (e.g., ``void set(Key<K, T> const &, T const &)``) that would provide compile-time type safety.
-Since method templates cannot be overridden in C++, these public templates would be implemented in terms of protected methods (e.g., ``void _set(Key<K, Storable> const &, Storable const &)``), which subclasses could use to define how the key-value pairs were stored and managed.
+Since method templates cannot be overridden in C++, these public templates would be implemented in terms of protected methods (e.g., ``void _set(Key<K, Storable> const &, Storable const &)``), which subclasses could use to define how the key-value pairs are stored and managed.
 
 Prototyping revealed that this design had several major issues:
 
@@ -150,18 +151,18 @@ We tried several solutions that would still let us use a heterogeneous map.
 One of the simplest was to drop the use of separate interface and implementation classes, and with it the need to delegate to specialized protected methods.
 However, we did not pursue this approach because it did not solve the problem of how to implement ``__getitem__``, and the eventual solution to that problem made an interface-oriented design acceptable again.
 
-One option to implement ``__getitem__`` without hardcoding a list of value types is to design :cpp:class:`~lsst::afw::typehandling::Key` objects to allow retrieval by superclasses of the desired type.
+One option to implement ``__getitem__`` without hard-coding a list of value types was to design :cpp:class:`~lsst::afw::typehandling::Key` objects to allow retrieval by superclasses of the desired type.
 However, we could not find a satisfactory implementation of this approach in C++.
 While it is possible to use templates to express questions like "Does a ``Key<Storable>`` match a ``Key<SkyWcs>``?", storing mixed :cpp:class:`~lsst::afw::typehandling::Key` types would require removing the compile-time information that enables such comparisons.
 Adding run-time type information to :cpp:class:`~lsst::afw::typehandling::Key` would solve the information loss problem, but C++'s support for RTTI is very limited, and the standard API only allows tests for exact type equality.
 
-The solution we adopted is to no longer store type information -- as a :cpp:class:`~lsst::afw::typehandling::Key` object or any other form -- in a :class:`~lsst.afw.typehandling.GenericMap`.
+The solution we adopted is to no longer store type information -- as a :cpp:class:`~lsst::afw::typehandling::Key` object or in any other form -- in a :class:`~lsst.afw.typehandling.GenericMap`.
 All queries internally pass the stored value through dynamic casting, which accesses RTTI in an implementation-dependent way that does account for subclasses.
-This approach solves all the original design issues, at the cost of making :class:`~lsst.afw.typehandling.GenericMap` no longer strictly type-safe:
+This approach solves all the original design issues, at the cost of making :class:`~lsst.afw.typehandling.GenericMap` no longer strictly type-safe (and much slower):
 
 1. Queries for an object of the wrong type are blocked at the casting step.
 2. ``__getitem__`` can retrieve any :class:`~lsst.afw.typehandling.Storable` by considering only ``Key<Storable>`` and ``Key<shared_ptr<Storable>>``.
-3. The protected subclass API is greatly simplified because it no longer needs to accommodate a variety of :cpp:class:`~lsst::afw::typehandling::Key` classes.
+3. The protected API is greatly simplified because it no longer needs to accommodate a variety of :cpp:class:`~lsst::afw::typehandling::Key` classes.
 
 In practice, the desire for type-unsafe storage was handled by making all protected methods work in terms of untyped keys and :cpp:class:`boost::variant` values.
 Passing by :cpp:class:`~boost::variant` provides a convenient way to express, in code, which values are supported by :class:`~lsst.afw.typehandling.GenericMap` without committing subclasses to any particular storage mechanism.
@@ -187,14 +188,14 @@ Python
 In Python, :class:`~lsst.afw.typehandling.GenericMap` follows the :class:`~collections.abc.Mapping` API almost exactly, aside from the need for homogeneous keys and the specific set of value types imposed by the C++ implementation.
 Operations that would violate these constraints raise :class:`TypeError`.
 As in C++, LSST-specific types can only be stored in a :class:`~lsst.afw.typehandling.GenericMap` if they inherit from :class:`~lsst.afw.typehandling.Storable`.
-However, these types need not be implemented in C++; :class:`~lsst.afw.typehandling.Storable` is designed to be subclassed by Python types as well.
+However, these types need not be implemented in C++; :class:`~lsst.afw.typehandling.Storable` is designed to be subclassed by Python types as well (see :ref:`storable`).
 
 In C++, :class:`~lsst.afw.typehandling.GenericMap` is a class template parametrized by the key type.
 Each specialization has its own pybind11 wrapper, but these wrappers are hidden by an :class:`lsst.utils.TemplateMeta` facade.
 Attempts to construct a :class:`~lsst.afw.typehandling.GenericMap` in Python will infer the key type from any input data, so most users need not specify a key type explicitly.
 
 Since the compile-time type safety provided by :cpp:class:`lsst::afw::typehandling::Key` is irrelevant in Python, :cpp:class:`~lsst::afw::typehandling::Key` does not have a pybind11 wrapper.
-Instead, all :class:`~lsst.afw.typehandling.GenericMap` methods take the underlying key type (e.g., a string), and the pybind11 code expresses the operations in terms of :cpp:class:`~lsst::afw::typehandling::Key`-based equivalents.
+Instead, all :class:`~lsst.afw.typehandling.GenericMap` methods take the underlying key type (e.g., a string instead of ``Key<string>``), and the pybind11 code expresses the operations in terms of :cpp:class:`~lsst::afw::typehandling::Key`-based equivalents.
 
 .. _storable:
 
@@ -208,8 +209,8 @@ As noted in :ref:`genericmap`, we were unable to develop a design for :class:`ls
 We introduced the :class:`lsst.afw.typehandling.Storable` interface to let :class:`~lsst.afw.typehandling.GenericMap` interact with LSST-specific types.
 Any user-defined class must inherit from :class:`~lsst.afw.typehandling.Storable` to be stored in a :class:`~lsst.afw.typehandling.GenericMap` or :class:`~lsst.afw.image.ExposureInfo`.
 
-To make it easier to work with :class:`~lsst.afw.typehandling.Storable` objects in C++, the interface declares several standard methods.
-These add some clutter to implementation classes that don't define them, but make it possible to persist :class:`~lsst.afw.typehandling.Storable` objects and perform generic object manipulation without the need for unsafe casting in user code.
+To make it easier to work with :class:`~lsst.afw.typehandling.Storable` objects in C++, the interface declares several optional methods that provide common operations like equality comparison.
+These methods add some clutter to implementation classes that don't define them, but make it possible to persist :class:`~lsst.afw.typehandling.Storable` objects and perform generic object manipulation without the need for unsafe casting in user code.
 
 Design Goals
 ------------
@@ -217,6 +218,7 @@ Design Goals
 We designed :class:`~lsst.afw.typehandling.Storable` to meet the following goals:
 
 * support subclasses written in either C++ or Python
+* support ``lsst.afw.table.io`` persistence
 * support the smallest reasonable subset of generic operations, chosen to be equality comparison, hashing, copying, and string representation
 * do not conflict with existing APIs of classes that may be retrofitted with :class:`~lsst.afw.typehandling.Storable`
 
@@ -224,12 +226,12 @@ The Storable API
 ----------------
 
 :class:`lsst.afw.typehandling.Storable` is a subclass of :cpp:class:`lsst::afw::table::io::Persistable`, though it does not require that persistence be implemented.
-This ensures that :class:`lsst.afw.image.ExposureInfo` can persist :class:`~lsst.afw.typehandling.Storable` objects using the same mechanism as (most of) its original members.
+This relationship ensures that :class:`lsst.afw.image.ExposureInfo` can persist :class:`~lsst.afw.typehandling.Storable` objects using the same mechanism as most of its original members.
 
-:class:`lsst.afw.typehandling.Storable` provides methods ``equals``, ``hash_value``, ``cloneStorable``, and ``toString`` to allow comparisons to other :class:`~lsst.afw.typehandling.Storable`, hashing, copying, and printing from C++.
+:class:`lsst.afw.typehandling.Storable` provides methods ``equals``, ``hash_value``, ``cloneStorable``, and ``toString`` to allow comparisons, hashing, copying, and printing in C++.
 ``equals`` defaults to object identity comparisons, while the others throw an exception by default.
 The method names, including the underscore in ``hash_value``, were chosen to avoid collisions with existing APIs (e.g., a ``clone`` method that returns a smart pointer to a more specific type than :class:`~lsst.afw.typehandling.Storable`).
-We preferred this approach over a more elaborate delegation system, such as that used in the AST library and many ``table::io`` classes, because the latter approach requires that authors remember to write a new method for each subclass.
+We preferred this approach over a more elaborate delegation system, such as that used in the AST library and many ``table::io`` classes, because the latter approach requires that authors remember to write a new method for each subclass, no matter how remotely descended from the base.
 
 :class:`~lsst.afw.typehandling.Storable` can be inherited from by Python classes, which should override the appropriate Python methods (e.g., ``__repr__`` instead of ``toString``).
 The inheritance is handled using the `pybind11 API for Python inheritance <https://pybind11.readthedocs.io/en/stable/advanced/classes.html#overriding-virtual-functions-in-python>`_, including a "trampoline" helper class.
@@ -244,7 +246,7 @@ The Design of ExposureInfo
 Rationale
 ---------
 
-:class:`lsst.afw.image.ExposureInfo` is one of the most fundamental classes in the LSST science pipelines, and any breaking changes to it will have far-reaching effects.
+:class:`lsst.afw.image.ExposureInfo` is one of the most fundamental classes in the LSST Science Pipelines, and any breaking changes to it can have far-reaching effects.
 We will almost certainly need to break :class:`~lsst.afw.image.ExposureInfo` when adopting a new persistence framework, as the ``lsst.afw.table.io`` framework is built into both the API and the persisted form.
 Therefore, we avoided introducing breaking changes in the conversion to a map-based implementation, to keep users from having to change their code or data twice.
 
@@ -272,15 +274,15 @@ In Python, as for :class:`lsst.afw.typehandling.GenericMap`, the key arguments a
 In the original conversion, :class:`~lsst.afw.image.ExposureInfo` stored its components in a :class:`MutableGenericMap\<string> <lsst.afw.typehandling.MutableGenericMap>`.
 The need for backwards-compatibility in :class:`~lsst.afw.image.ExposureInfo`, and the intersection of type requirements imposed by ``lsst.table.io`` and :class:`~lsst.afw.typehandling.GenericMap`, meant that all generic components had to be stored as shared pointer to ``const`` :class:`~lsst.afw.typehandling.Storable` (see :ref:`exposureinfo_code_constraints`).
 When it became clear that :class:`~lsst.afw.typehandling.GenericMap` will be a brittle class until at least C++17, we replaced the :class:`~lsst.afw.typehandling.MutableGenericMap` with a private class, ``StorableMap``, that only holds shared pointers to :class:`~lsst.afw.typehandling.Storable` but still checks for the appropriate subclass.
-This change will make :class:`~lsst.afw.image.ExposureInfo` much easier to maintain, at the cost of being unable to incorporate a broader range of types in the future.
+This change makes :class:`~lsst.afw.image.ExposureInfo` much easier to maintain, at the cost of being unable to incorporate a broader range of types in the future.
 
 All but three of :class:`~lsst.afw.image.ExposureInfo`'s traditional components have been migrated to map-based storage.
 The three exceptions are:
 
-* The image metadata are stored in a :class:`lsst.daf.base.PropertySet`, which cannot inherit from :class:`~lsst.afw.typehandling.Storable` because it's in a dependency of ``lsst.afw``.
-* The visit info is stored inside the metadata rather than as a separate component, so it must continue to be written there for backward compatibility.
+* the image metadata are stored in a :class:`lsst.daf.base.PropertySet`, which cannot inherit from :class:`~lsst.afw.typehandling.Storable` because it's in a dependency of ``lsst.afw``.
+* the visit info is stored inside the metadata rather than as a separate component, so it must continue to be written there for backward compatibility.
   We chose not to duplicate it (storing both as metadata and as a :class:`~lsst.afw.typehandling.Storable`) for simplicity.
-* The filter is stored inside the metadata, like the visit info.
+* the filter is stored inside the metadata, like the visit info.
   In addition, :class:`~lsst.afw.image.ExposureInfo`'s filter-related methods pass and return a filter object, not a shared pointer, so we cannot migrate it without either changing the existing API to use shared pointers or introducing inconsistencies between, for example, the return types of :meth:`~lsst.afw.image.ExposureInfo.getFilter` and :meth:`~lsst.afw.image.ExposureInfo.getComponent`.
 
 .. _exposureinfo_code_constraints:
@@ -299,8 +301,9 @@ Since:
 * changing the inputs to non-``const`` would likely break client code, and
 * changing the outputs to ``const`` would be relatively safe,
 
-we chose to standardize both inputs and outputs to ``const``, and to modify :class:`~lsst.afw.typehandling.GenericMap` to hold shared pointers to ``const``.
-Standardizing output to ``const`` was a breaking change to the C++ interfaces for :meth:`~lsst.afw.image.ExposureInfo.getPsf` and :meth:`~lsst.afw.image.ExposureInfo.getCoaddInputs`, but there is no C++ code in science pipelines that stores the results as pointer to non-``const``, so the change caused no problems to our knowledge.
+we chose to standardize both inputs and outputs to ``const``, and to modify :class:`~lsst.afw.typehandling.GenericMap` to hold shared pointers to ``const`` *instead of* pointers to non-``const``.
+Standardizing output to ``const`` was a breaking change to the C++ interfaces for :meth:`~lsst.afw.image.ExposureInfo.getPsf` and :meth:`~lsst.afw.image.ExposureInfo.getCoaddInputs`.
+However, as there was no C++ code in Science Pipelines that stored the results as pointer to non-``const``, the change caused no problems to our knowledge.
 
 ExposureInfo Persistence Changes
 --------------------------------
@@ -310,15 +313,15 @@ Generic components generalize this format by creating a header key from the comp
 The extensions containing generic components are not guaranteed to be arranged in any particular order, but neither the original nor the generalized formats depend on ordering.
 
 The above conventions, combined with the need for backwards compatibility, imply that components that have been migrated to generic storage must have a component key that matches the original header key (e.g., ``SKYWCS`` for WCS information).
-The awkward names add some inconvenience to :class:`~lsst.afw.image.ExposureInfo` clients, but to do otherwise requires finding a way to both generate an independent FITS header key in a backward-compatible way, and to store the component key inside the archive in a backward-compatible way.
+The awkward names add some inconvenience to :class:`~lsst.afw.image.ExposureInfo` clients, but an alternative would need to both generate an independent FITS header key in a backward-compatible way and store the component key inside the archive in a backward-compatible way.
 Basing the FITS header key on the component key was deemed a less error-prone solution.
 
-While the FITS header keys listing the extensions could previously be hardcoded into :class:`~lsst.afw.image.ExposureInfo`'s depersistence code, the depersistence code for generic components must search the header for keys of the expected format.
+While the FITS header keys listing the extensions could previously be hard-coded into :class:`~lsst.afw.image.ExposureInfo`'s depersistence code, the depersistence code for generic components must search the header for keys of the expected format.
 Queries for ``[arbitrary string]_ID`` are vulnerable to false positives from header keys like ``VISIT_ID`` or ``CCD_ID``; if associated values are small integers, then there is no way to  distinguish such keys from real archive IDs.
 
 We therefore added a second convention for archive IDs, of the form ``ARCHIVE_ID_[component]``.
 Old components are depersisted using the ``*_ID`` syntax, to retain compatibility with old files, while new ones are depersisted using ``ARCHIVE_ID_*``.
-The new code strips sets of header keywords are stripped when they are detected; new files read using old code may have leftover ``ARCHIVE_ID_`` keywords.
+The new code strips both sets of header keywords when they are detected; new files read using old code may have leftover ``ARCHIVE_ID_`` keywords.
 
 .. _newpersistence:
 
@@ -337,18 +340,18 @@ Adoption Constraints
 
 We are looking for a persistence framework that meets the following criteria:
 
-* It must have a GPL3-compatible license.
-* It must allow persistence of both C++ and Python objects.
-* It must allow persistence to multiple formats, including FITS, JSON, and YAML.
+* it must have a GPL3-compatible license.
+* it must allow persistence of both C++ and Python objects.
+* it must allow persistence to multiple formats, including FITS, JSON, and YAML.
   Compatibility with JSON and YAML implies that the framework must be able to represent objects as key-value pairs.
-* It must allow versioning of persistence formats.
-* It must allow unpersistence of old files written with the ``lsst.afw.table.io`` framework.
-* It must allow efficient storage of arrays, particularly images, but not necessarily in all formats.
-* It must correctly depersist polymorphic types that are stored in C++ by their base class (e.g., :class:`lsst.afw.detection.Psf`), reproducing their exact type (e.g., :class:`lsst.meas.algorithms.ImagePsf`).
-* It must be able to read in part of a persisted object, such as only the WCS from a persisted :class:`~lsst.afw.image.Exposure`.
-* It should be able to store relationships between objects that refer to each other.
+* it must allow versioning of persistence formats.
+* it must allow depersistence of old files written with the ``lsst.afw.table.io`` framework.
+* it must allow efficient storage of arrays, particularly images, but not necessarily in formats other than FITS.
+* it must correctly depersist polymorphic types that are stored in C++ by their base class (e.g., :class:`lsst.afw.detection.Psf`), reproducing their exact type (e.g., :class:`lsst.meas.algorithms.ImagePsf`).
+* it must be able to read in part of a persisted object, such as only the WCS from a persisted :class:`~lsst.afw.image.Exposure`.
+* it should be able to store relationships between objects that refer to each other.
   This would allow us to separately store composite objects and their components, such as the individual PSFs used to create a :class:`lsst.meas.algorithms.CoaddPsf`, simplifying provenance tracking.
-* It should persist files in a human-readable form, where practical, as a debugging aid.
+* it should persist files in a human-readable form, where practical, as a debugging aid.
 
 We do not have any expectation that we should be able to easily change persistence frameworks in the future.
 
@@ -367,17 +370,17 @@ Because of its record-based approach, Avro is best-suited for bulk data: one cou
 
 Avro meets many, but not all, of our criteria:
 
-* It uses the Apache 2.0 license.
-* It has built-in support for both C++ and Python, although the Python API is much better.
-* It has built-in support for JSON, as well as a proprietary format. We can, in principle, support additional formats using stream I/O, but the interfaces do not appear to have been designed for third-party implementations.
-* It supports schema versioning.
-* It may be possible to unpersist ``lsst.afw.table.io`` files by treating it as a custom format.
-* It natively supports arrays of arbitrary type, including numeric primitives.
-* It does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* it uses the Apache 2.0 license.
+* it has built-in support for both C++ and Python, although the Python API is much better.
+* it has built-in support for JSON, as well as a proprietary format. We can, in principle, support additional formats using stream I/O, but the interfaces do not appear to have been designed for third-party implementations.
+* it supports schema versioning.
+* it may be possible to depersist ``lsst.afw.table.io`` files by treating it as a custom format.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
   Avro makes heavy use of dynamic typing on depersistence, so differences in the persisted form among related classes are not a problem.
-* Its tables are row-oriented, so it does not have any special ability to partially read objects.
-* It does not natively store object references, though we could emulate them by introducing a unique object ID data type.
-* In Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
+* its tables are row-oriented, so it does not have any special ability to partially read objects.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* in Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
 
 Option: cereal
 --------------
@@ -386,28 +389,28 @@ Option: cereal
 
 .. _Boost Serialization: https://www.boost.org/doc/libs/release/libs/serialization/
 
-The unfortunately-named `cereal`_ is a C++ persistence library provided by the University of Southern California.
+`cereal`_ is a C++ persistence library provided by the University of Southern California.
 It's similar in style to `Boost Serialization`_, but more lightweight.
-References to objects are passed to an :cpp:class:`cereal::InputArchive` or :cpp:class:`cereal::OutputArchive` object, which calls user-defined methods or functions to handle non-built-in types (these methods usually call the archive recursively).
+References to objects are passed to a :cpp:class:`cereal::InputArchive` or :cpp:class:`cereal::OutputArchive` object, which calls user-defined methods or functions to handle non-built-in types (these methods usually call the archive recursively).
 
 cereal was not designed for long-term storage, and makes no guarantee that a later version of the library will correctly load a file written by an earlier version.
 We can work around this limitation by locking the Stack's version of cereal.
 
 cereal meets many, but not all, of our criteria:
 
-* It uses the 3-clause BSD license.
-* It does not support languages other than C++.
+* it uses the 3-clause BSD license.
+* it does not support languages other than C++.
   It probably cannot handle pure-Python classes (it needs C++ functions or methods to define the persisted form), but it might be able to handle Python subclasses of a C++ interface like :class:`lsst.afw.typehandling.Storable`.
-* It supports class versioning, using a system similar to that currently used for :class:`~lsst.afw.image.ExposureInfo`.
-* It may be possible to unpersist ``lsst.afw.table.io`` files by treating it as a custom format.
-* It supports raw binary output for individual fields, which can be used to efficiently store arrays.
-* It supports polymorphism, but requires explicit registration of all subclasses.
+* it explicitly supports subclassing the archive classes, including specializing them for new output formats.
+* it supports class versioning, using a system similar to that currently used for :class:`~lsst.afw.image.ExposureInfo`.
+* it is possible to depersist ``lsst.afw.table.io`` files by treating it as a custom format.
+* it supports raw binary output for individual fields, which can be used to efficiently store arrays.
+* it supports polymorphism, but requires explicit registration of all subclasses.
   The registration code for a particular class must be aware of all possible archive implementations, making it difficult to add new file formats.
-* It supports "out of order loading" of subobjects in specific archive implementations, including the built-in JSON archive.
-  However, this means that code to partially read objects from other file types would need to be implemented by LSST.
-* It can self-consistently track object relationships, but requires that all objects (such as a :class:`lsst.meas.algorithms.CoaddPsf` and its constituents) be in the same archive.
+* it supports "out of order loading" of sub-objects in specific archive implementations, including the built-in JSON archive.
+* it can self-consistently track object relationships, but requires that all objects (such as a :class:`lsst.meas.algorithms.CoaddPsf` and its constituents) be in the same archive.
   It cannot be used to store such objects in separate files, though we could emulate such functionality by introducing a unique object ID to the persisted form.
-* It supports human-readable key-value pairs, as well as a "simplified" output format for human-redability.
+* it supports human-readable key-value pairs, as well as a "simplified" output format for human-readability.
 
 
 Option: FlatBuffer
@@ -417,7 +420,7 @@ Option: FlatBuffer
 
 `FlatBuffer`_ is a struct-like persistence library provided by Google.
 It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
-The schemas are compiled into proxy classes (in both C++ and Python), whose data are then accesed using object member syntax.
+The schemas are compiled into proxy classes (in both C++ and Python), whose data are then accessed using object member syntax.
 FlatBuffer uses a custom schema definition language, but as the notation is similar in spirit to :class:`lsst.pipe.base.PipelineTaskConnections`, it should not be a major conceptual burden on LSST developers.
 
 Because the persisted form of each persistable type is represented by a different class, it may be difficult to write generic code against persistables.
@@ -425,21 +428,21 @@ However, FlatBuffer does provide a reflection API for working with generic persi
 
 FlatBuffer meets some of our criteria:
 
-* It uses the Apache 2.0 license.
-* It has built-in support for both C++ and Python, although Python features are very limited.
+* it uses the Apache 2.0 license.
+* it has built-in support for both C++ and Python, although Python features are very limited.
   The C++ API is also cleaner, particularly with vector types.
-* It only natively supports a proprietary file format (though it allows import from JSON).
+* it only natively supports a proprietary file format (though it allows import from JSON).
   In C++, it may be possible to use reflection to support other formats.
-* It supports schema versioning.
-* It probably cannot unpersist old files, as FlatBuffer makes strict demands on persistence formats in the interest of efficiency.
-* It natively supports arrays of primitive type.
-* It does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does) and using the FlexBuffers feature to avoid knowing the schema a priori.
-* It supports streaming input of large files, at least in C++, but does not support reading only a predetermined part of an object.
+* it supports schema versioning.
+* it probably cannot depersist old files, as FlatBuffer makes strict demands on persistence formats in the interest of efficiency.
+* it natively supports arrays of primitive type.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does) and using the FlexBuffers feature to avoid knowing the schema a priori.
+* it supports streaming input of large files, at least in C++, but does not support reading only a predetermined part of an object.
   However, it does depersist at close to disk-limited speed, so partial reads may be less performance-critical.
-* It has native support for object relationships, even among different persisted files.
-* Its persisted form is highly efficient, and therefore not human-readable.
+* it has native support for object relationships, even among different persisted files.
+* its persisted form is highly efficient, and therefore not human-readable.
 
-Reccomendations
+Recommendations
 ---------------
 
 We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``, and are continuing our research into alternatives.
