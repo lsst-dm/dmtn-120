@@ -328,6 +328,10 @@ Alternative Persistence Frameworks
 Rationale
 ---------
 
+Despite recent improvements to :class:`lsst.afw.image.ExposureInfo`, our ability to attach data to an :class:`~lsst.afw.image.Exposure` is limited by the ``lsst.afw.table.io`` persistence framework.
+We still have circular dependencies within ``afw``, we still need persistable objects to be written in C++, and we still need to work around the non-optimal nature of ``lsst.afw.table.io`` itself.
+To go further, we need to replace ``lsst.afw.table.io`` with a well-maintained package that, unlike ``afw.table``, was designed for persistence.
+
 Adoption Constraints
 --------------------
 
