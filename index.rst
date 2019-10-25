@@ -338,17 +338,17 @@ To go further, we need to replace ``lsst.afw.table.io`` with a well-maintained p
 Adoption Constraints
 --------------------
 
-We are looking for a persistence framework that meets the following criteria:
+We are looking for a persistence framework that meets many of the following criteria:
 
-* it must have a GPL3-compatible license.
-* it must allow persistence of both C++ and Python objects.
-* it must allow persistence to multiple formats, including FITS, JSON, and YAML.
-  Compatibility with JSON and YAML implies that the framework must be able to represent objects as key-value pairs.
-* it must allow versioning of persistence formats.
-* it must allow depersistence of old files written with the ``lsst.afw.table.io`` framework.
-* it must allow efficient storage of arrays, particularly images, but not necessarily in formats other than FITS.
-* it must correctly depersist polymorphic types that are stored in C++ by their base class (e.g., :class:`lsst.afw.detection.Psf`), reproducing their exact type (e.g., :class:`lsst.meas.algorithms.ImagePsf`).
-* it must be able to read in part of a persisted object, such as only the WCS from a persisted :class:`~lsst.afw.image.Exposure`.
+* it should have a GPL3-compatible license.
+* it should allow persistence of both C++ and Python objects.
+* it should allow persistence to multiple formats, including FITS, JSON, and YAML.
+  Compatibility with JSON and YAML requires a framework that can represent objects as key-value pairs.
+* it should allow versioning of persistence formats.
+* it should allow depersistence of old files written with the ``lsst.afw.table.io`` framework.
+* it should allow efficient storage of arrays, particularly images, but not necessarily in formats other than FITS.
+* it should correctly depersist polymorphic types that are stored in C++ by their base class (e.g., :class:`lsst.afw.detection.Psf`), reproducing their exact type (e.g., :class:`lsst.meas.algorithms.ImagePsf`).
+* it should be able to read in part of a persisted object, such as only the WCS from a persisted :class:`~lsst.afw.image.Exposure`.
 * it should be able to store relationships between objects that refer to each other.
   This would allow us to separately store composite objects and their components, such as the individual PSFs used to create a :class:`lsst.meas.algorithms.CoaddPsf`, simplifying provenance tracking.
 * it should persist files in a human-readable form, where practical, as a debugging aid.
