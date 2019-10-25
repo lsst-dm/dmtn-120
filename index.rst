@@ -8,15 +8,6 @@
 
 .. sectnum::
 
-.. TODO: Delete the note below before merging new content to the master branch.
-
-.. note::
-
-   **This technote is not yet published.**
-
-   This technote describes a project to improve the persistence of Stack classes, particularly :class:`lsst.afw.image.Exposure` and its components.
-   It covers the design decisions behind the :class:`lsst.afw.typehandling.GenericMap` class template and the redesign of :class:`lsst.afw.image.ExposureInfo`, and explores options for an off-the-shelf persistence framework to replace ``lsst.afw.table.io``.
-
 .. _intro:
 
 The Problem
