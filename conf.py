@@ -17,6 +17,6 @@ g.update(confs)
 
 # Add intersphinx inventories as needed
 # http://www.sphinx-doc.org/en/stable/ext/intersphinx.html
-# Example:
-#
-#     intersphinx_mapping['python'] = ('https://docs.python.org/3', None)
+
+intersphinx_mapping['python'] = ('https://docs.python.org/3', None)
+intersphinx_mapping['pipelines'] = ('https://pipelines.lsst.io/v/weekly/', None)

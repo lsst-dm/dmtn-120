@@ -14,7 +14,8 @@ Improving Extensibility in afw.image.Exposure and Replacing afw.table.io
 DMTN-120
 ========
 
-A design study for improving the persistence of Stack classes, particularly `lsst.afw.image.Exposure` and its components. This note describes the design decisions behind the `lsst.afw.typehandling.GenericMap` class template and explores options for an off-the-shelf persistence framework to replace `lsst.afw.table.io`.
+A design study for improving the persistence of Stack classes, particularly ``lsst.afw.image.Exposure`` and its components.
+This note describes the design decisions behind the ``lsst.afw.typehandling.GenericMap`` class template and explores options for an off-the-shelf persistence framework to replace ``lsst.afw.table.io``.
 
 **Links:**
 
