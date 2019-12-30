@@ -361,6 +361,9 @@ The tools behave much like ``pickle``, with a default serialized form that can b
 The serialized form is a byte stream, which is encoded and decoded into Python objects.
 While optimized for NumPy arrays, ``pyarrow`` serialization is advertised as faster than ``pickle`` in general.
 
+This option should not be confused with :ref:`Parquet <newpersistence_parquet>`.
+Although it uses Arrow as its default reader in C++ and Python, Parquet is a different format from that used by ``pyarrow``'s object serialization code.
+
 Arrow meets only a few of our criteria:
 
 * it uses the Apache 2.0 license.
@@ -467,6 +470,37 @@ FlatBuffer meets some of our criteria:
   However, it does depersist at close to disk-limited speed, so partial reads may be less performance-critical.
 * it has native support for object relationships, even among different persisted files.
 * its persisted form is highly efficient, and therefore not human-readable.
+
+.. _newpersistence_parquet:
+
+Option: Parquet
+---------------
+
+.. _Parquet: https://parquet.apache.org/documentation/latest/
+
+`Parquet`_ is a table-like persistence format provided by Apache.
+The format requires exactly one schema for each file, but multiple files (and therefore multiple schemas) can be combined into a logical dataset.
+The standard Parquet reader in both C++ and Python is Apache Arrow, which represents the persisted form as a ``Table`` object.
+Since Parquet was not designed specifically for object persistence, client code is fully responsible for serializing and deserializing an object from a ``Table``.
+
+Arrow's ``Table`` API is similar in spirit to ``lsst.afw.table``, encoding such concepts as non-contiguous tables ("chunked" types) and compound keys ("struct arrays").
+However, this means that it is not necessarily better-suited for object persistence than ``lsst.afw.table.io``.
+
+Parquet meets only a few of our criteria:
+
+* it uses the Apache 2.0 license.
+* it supports both Python and C++, although the C++ interface is not fully documented.
+* it is a proprietary format, with no built-in interoperability with JSON, YAML, etc.
+* it does not support versioning of persistence formats.
+* it does not allow depersistence of files written with the ``lsst.afw.table.io`` framework.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* its tables are column-oriented, so partial reads are fast in the limit of large numbers of rows.
+  For small tables, the Parquet format does not necessarily provide a speed improvement because most columns may be on the same disk page.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* its file format is heavily optimized and compressed, and therefore not human-readable.
+  The intermediate persisted form (a ``Table`` object) is moderately human-redable in Python.
+
 
 Recommendations
 ---------------
