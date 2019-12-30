@@ -349,6 +349,32 @@ We are looking for a persistence framework that meets many of the following crit
 
 We do not have any expectation that we should be able to easily change persistence frameworks in the future.
 
+.. _newpersistence_arrow:
+
+Option: Arrow
+-------------
+
+.. _Apache Arrow: https://arrow.apache.org/
+
+While a memory management library rather than a persistence framework, `Apache Arrow`_ provides serialization tools through its Python interface, ``pyarrow``.
+The tools behave much like ``pickle``, with a default serialized form that can be overridden by custom functions.
+The serialized form is a byte stream, which is encoded and decoded into Python objects.
+While optimized for NumPy arrays, ``pyarrow`` serialization is advertised as faster than ``pickle`` in general.
+
+Arrow meets only a few of our criteria:
+
+* it uses the Apache 2.0 license.
+* it supports fast file I/O of suitable byte streams in both C++ and Python, but offers a generic way to serialize objects to a byte stream only in Python.
+* it uses a proprietary format exclusively.
+* it versions the general byte stream format, but does not support versioning of any particular type's serialized form.
+* it does not interoperate with external formats like ``lsst.afw.table.io``
+* it is designed for efficient array storage.
+* the documentation does not mention how polymorphic types are handled by default, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* it supports partial deserialization (only of NumPy arrays?), but requires that the object be read into memory first.
+* it is not clear how it stores object references (although its ability to delegate subobjects' serialization to ``pickle`` provides a clue).
+* its persisted form is not human-readable.
+
+
 .. _newpersistence_avro:
 
 Option: Avro
