@@ -346,6 +346,8 @@ We are looking for a persistence framework that meets many of the following crit
 
 We do not have any expectation that we should be able to easily change persistence frameworks in the future.
 
+.. _newpersistence_avro:
+
 Option: Avro
 ------------
 
@@ -372,6 +374,8 @@ Avro meets many, but not all, of our criteria:
 * its tables are row-oriented, so it does not have any special ability to partially read objects.
 * it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
 * in Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
+
+.. _newpersistence_cereal:
 
 Option: cereal
 --------------
@@ -403,6 +407,8 @@ cereal meets many, but not all, of our criteria:
   It cannot be used to store such objects in separate files, though we could emulate such functionality by introducing a unique object ID to the persisted form.
 * it supports human-readable key-value pairs, as well as a "simplified" output format for human-readability.
 
+
+.. _newpersistence_flatbuffer:
 
 Option: FlatBuffer
 ------------------
