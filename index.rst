@@ -502,6 +502,34 @@ Parquet meets only a few of our criteria:
   The intermediate persisted form (a ``Table`` object) is moderately human-redable in Python.
 
 
+.. _newpersistence_pyrobuf:
+
+Option: Pyrobuf
+---------------
+
+.. _Pyrobuf: https://github.com/appnexus/pyrobuf
+
+`Pyrobuf`_ is an AppNexus emulation of Google's Protobuf, built for speed.
+Like Google's related library, :ref:`FlatBuffer <newpersistence_flatbuffer>`, Protobuf and Pyrobuf define persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+The schemas are compiled into proxy classes, whose data are accessed using object member syntax.
+Unlike in FlatBuffer, the proxy classes must be explicitly serialized to and from byte streams.
+
+Pyrobuf meets some of our criteria:
+
+* it uses the Apache 2.0 license.
+* it  works only in Python, but the need for multiple translation layers means Pybind11-wrapped C++ classes can be easily accommodated, as long as their full state is visible from Python.
+* it natively supports the Google Protobuf format and JSON.
+  It's possible to write proxy classes to other formats, although writing the code to do so takes away much of the savings of using a third-party library.
+* it does not support versioning of persistence formats.
+* it can create proxy classes from ``lsst.afw.table.io`` with a custom translator.
+* it natively supports arrays of arbitrary type.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+  Pyrobuf is fail-soft for addition or removal of fields, so we can add extra fields in subclasses.
+* it does not support partial reads of objects.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* the serialized byte streams are not human-readable, although the proxy classes are
+
+
 Recommendations
 ---------------
 
