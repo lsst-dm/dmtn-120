@@ -326,6 +326,9 @@ Despite recent improvements to :class:`lsst.afw.image.ExposureInfo`, our ability
 We still have circular dependencies within ``afw``, we still need persistable objects to be written in C++, and we still need to work around the non-optimal nature of ``lsst.afw.table.io`` itself.
 To go further, we need to replace ``lsst.afw.table.io`` with a well-maintained package that, unlike ``afw.table``, was designed for persistence.
 
+For this technote, a "persistence framework" is any library that defines at least a data persistence format and an API for reading and writing to it.
+It does not need to provide support for serializing objects to a data representation; for example, ``lsst.afw.table.io`` relies on class-specific code to do this.
+
 Adoption Constraints
 --------------------
 
