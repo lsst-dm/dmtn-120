@@ -407,6 +407,41 @@ Avro meets many, but not all, of our criteria:
 * it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
 * in Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
 
+
+.. _newpersistence_bond:
+
+Option: Bond
+------------
+
+.. _Bond: https://microsoft.github.io/bond/
+
+`Bond`_ is a struct-like persistence library provided by Microsoft.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+The schemas are compiled into C++ proxy classes, whose data are then accessed (in C++ or Python) using object member syntax.
+Bond uses a custom schema definition language with a C-like syntax.
+
+Because the persisted form of each persistable type is represented by a different class, it may be difficult to write generic code against persistables.
+However, Bond provides a reflection API for working with generic persisted forms.
+
+Bond has significant external dependencies, namely the Haskell Tool Stack and RapidJSON.
+
+Bond meets most of our criteria, though with caveats:
+
+* it uses the MIT license.
+* it has built-in support for both C++ and Python.
+  However, Python support depends on module files compiled with Boost Python, which may have surprising interactions with our Pybind11-based system.
+* it has built-in support for JSON and several proprietary formats with different speed-size tradeoffs.
+  It also has extensive support for different kinds of custom data formats.
+* it does not support schema versioning.
+* it can depersist ``lsst.afw.table.io`` files by treating it as a custom format, though it would need to be tied to the Bond schema.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, but it does provide a persistence format for its own schemas (either as part of a data file, or separately).
+  If there's a one-to-one mapping between persistable classes and schema structs, then the distinction will be preserved in the file.
+* it provides an API for lazy deserialization, although whether this allows partial reads in practice depends on the file format (specifically, on whether the data block for a subobject can be identified without parsing it).
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* the persisted form is not human-readable, though it can be converted to, e.g., a JSON representation
+
+
 .. _newpersistence_cereal:
 
 Option: cereal
