@@ -567,6 +567,35 @@ HDF5 meets only a few of our criteria:
 * its persisted form is not human-readable.
 
 
+.. _newpersistence_msgpack:
+
+Option: MsgPack
+---------------
+
+.. _MsgPack: https://msgpack.org/
+
+`MsgPack`_ is a tree-like persistence format by independent developer Sadayuki Furuhashi.
+It's sometimes described as a binary version of JSON.
+The C++ implementation provides several interfaces for persisting objects, including custom :cpp:class:`msgpack::adaptor::pack` and :cpp:class:`msgpack::adaptor::convert` callables, and macros that resemble Python's use of tuples for pickling.
+The Python implementation provides an API similar to Python's built-in JSON library.
+
+Because the MsgPack format handles object types in a very client-specific way, extra care may be needed to get persisted forms that interoperate between C++ and Python.
+
+MsgPack meets some of our criteria:
+
+* the C++ implementation uses the Boost 1.0 license, while the Python implementation uses the Apache 2.0 license.
+* it supports Python and C++.
+* it uses a proprietary format exclusively.
+* it does not have any support for datatype versioning; support would need to be included in the custom depersistence code.
+  The Python implementation has tools to manually parse the serialized form; I could not find a C++ equivalent.
+* it cannot depersist external files.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does) or through custom depersistence logic.
+* it does not support partial reads.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* its persisted form is highly efficient, and therefore not human-readable.
+
+
 .. _newpersistence_parquet:
 
 Option: Parquet
