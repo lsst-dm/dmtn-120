@@ -506,6 +506,35 @@ FlatBuffer meets some of our criteria:
 * it has native support for object relationships, even among different persisted files.
 * its persisted form is highly efficient, and therefore not human-readable.
 
+
+.. _newpersistence_hdf5:
+
+Option: HDF5
+------------
+
+.. _HDF5: https://www.hdfgroup.org/
+
+While it's often associated with large numerical datasets, the filesystem-like `HDF5`_ file format can store arbitrary objects (compound datatypes, in its terminology).
+It defines compound datatypes in terms of other HDF5 datatypes, which need to be explicitly composed in C code and expressed as :class:`numpy.dtype` objects in Python code.
+
+Because it's not specifically designed for persistence of single objects, if we used HDF5 as a persistence framework, we would likely need to create an interface explicitly geared toward object persistence rather than forcing users to use HDF5's own APIs.
+
+HDF5 meets only a few of our criteria:
+
+* HDF5 for Python uses the 3-clause BSD license.
+  The HDF5 library itself uses a modified version of BSD 3-clause; I'm not sure whether it's still GPL-compatible.
+* it supports Python and C.
+  The Python API is in general cleaner, but does not support nested compound datatypes.
+* it uses a proprietary format exclusively.
+* it does not have any support for datatype versioning.
+* it cannot depersist old files.
+* it natively supports arrays of arbitrary type, with explicit support for image data.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* it supports partial reads only for subsets of array datasets, not for elements of a compound dataset.
+* it has native support for dataset relationships, but only between datasets in the same HDF5 file
+* its persisted form is not human-readable.
+
+
 .. _newpersistence_parquet:
 
 Option: Parquet
