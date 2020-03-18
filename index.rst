@@ -442,6 +442,38 @@ Bond meets most of our criteria, though with caveats:
 * the persisted form is not human-readable, though it can be converted to, e.g., a JSON representation
 
 
+.. _newpersistence_capn_proto:
+
+Option: Cap'n Proto
+-------------------
+
+.. _Cap'n Proto: https://capnproto.org/
+
+`Cap'n Proto`_ is a struct-like persistence library developed by the Sandstorm web platform.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+In C++, the schemas are typically compiled into proxy classes, whose data are then accessed using object member syntax.
+In Python, no code generation is required.
+Cap'n Proto uses a custom schema definition language that is easy to use correctly but also easy to use incorrectly.
+
+The library is designed for its persisted forms to be usable as in-memory objects, but that's not an option if we're using it as a general-purpose persistence framework.
+Serialization and deserialization may be slower than for other frameworks because it wasn't a design priority.
+
+Cap'n Proto meets only a few of our criteria:
+
+* it uses the MIT license
+* it has built-in support for C++, and there is a wrapper for Python.
+* it uses a proprietary format exclusively.
+* it does not support schema versioning.
+  New fields can be added safely, but must absolutely never be removed.
+* it cannot depersist external files.
+* it natively supports lists of arbitrary type, including numeric primitives and other lists.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+  However, this approach would probably make it impossible to make changes to the base class's schema because all fields need an continuously incremented ID number.
+* it supports several techniques for partial reads of large objects.
+* it has native support for object relationships, but only within the same file.
+* its persisted form is highly efficient, and therefore not human-readable.
+
+
 .. _newpersistence_cereal:
 
 Option: cereal
