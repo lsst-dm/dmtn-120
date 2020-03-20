@@ -658,7 +658,7 @@ Pyrobuf meets some of our criteria:
 Recommendations
 ---------------
 
-We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``, and are continuing our research into alternatives.
+We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``.
 
 .. .. rubric:: References
 
