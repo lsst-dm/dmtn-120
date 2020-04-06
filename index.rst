@@ -326,6 +326,9 @@ Despite recent improvements to :class:`lsst.afw.image.ExposureInfo`, our ability
 We still have circular dependencies within ``afw``, we still need persistable objects to be written in C++, and we still need to work around the non-optimal nature of ``lsst.afw.table.io`` itself.
 To go further, we need to replace ``lsst.afw.table.io`` with a well-maintained package that, unlike ``afw.table``, was designed for persistence.
 
+For this technote, a "persistence framework" is any library that defines at least a data persistence format and an API for reading and writing to it.
+It does not need to provide support for serializing objects to a data representation; for example, ``lsst.afw.table.io`` relies on class-specific code to do this.
+
 Adoption Constraints
 --------------------
 
@@ -345,6 +348,37 @@ We are looking for a persistence framework that meets many of the following crit
 * it should persist files in a human-readable form, where practical, as a debugging aid.
 
 We do not have any expectation that we should be able to easily change persistence frameworks in the future.
+
+.. _newpersistence_arrow:
+
+Option: Arrow
+-------------
+
+.. _Apache Arrow: https://arrow.apache.org/
+
+While a memory management library rather than a persistence framework, `Apache Arrow`_ provides serialization tools through its Python interface, ``pyarrow``.
+The tools behave much like ``pickle``, with a default serialized form that can be overridden by custom functions.
+The serialized form is a byte stream, which is encoded and decoded into Python objects.
+While optimized for NumPy arrays, ``pyarrow`` serialization is advertised as faster than ``pickle`` in general.
+
+This option should not be confused with :ref:`Parquet <newpersistence_parquet>`.
+Although it uses Arrow as its default reader in C++ and Python, Parquet is a different format from that used by ``pyarrow``'s object serialization code.
+
+Arrow meets only a few of our criteria:
+
+* it uses the Apache 2.0 license.
+* it supports fast file I/O of suitable byte streams in both C++ and Python, but offers a generic way to serialize objects to a byte stream only in Python.
+* it uses a proprietary format exclusively.
+* it versions the general byte stream format, but does not support versioning of any particular type's serialized form.
+* it does not interoperate with external formats like ``lsst.afw.table.io``
+* it is designed for efficient array storage.
+* the documentation does not mention how polymorphic types are handled by default, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* it supports partial deserialization (only of NumPy arrays?), but requires that the object be read into memory first.
+* it is not clear how it stores object references (although its ability to delegate subobjects' serialization to ``pickle`` provides a clue).
+* its persisted form is not human-readable.
+
+
+.. _newpersistence_avro:
 
 Option: Avro
 ------------
@@ -372,6 +406,75 @@ Avro meets many, but not all, of our criteria:
 * its tables are row-oriented, so it does not have any special ability to partially read objects.
 * it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
 * in Python, the persisted form is a :class:`dict` from field names to field values, which is reasonably human-readable.
+
+
+.. _newpersistence_bond:
+
+Option: Bond
+------------
+
+.. _Bond: https://microsoft.github.io/bond/
+
+`Bond`_ is a struct-like persistence library provided by Microsoft.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+The schemas are compiled into C++ proxy classes, whose data are then accessed (in C++ or Python) using object member syntax.
+Bond uses a custom schema definition language with a C-like syntax.
+
+Because the persisted form of each persistable type is represented by a different class, it may be difficult to write generic code against persistables.
+However, Bond provides a reflection API for working with generic persisted forms.
+
+Bond has significant external dependencies, namely the Haskell Tool Stack and RapidJSON.
+
+Bond meets most of our criteria, though with caveats:
+
+* it uses the MIT license.
+* it has built-in support for both C++ and Python.
+  However, Python support depends on module files compiled with Boost Python, which may have surprising interactions with our Pybind11-based system.
+* it has built-in support for JSON and several proprietary formats with different speed-size tradeoffs.
+  It also has extensive support for different kinds of custom data formats.
+* it does not support schema versioning.
+* it can depersist ``lsst.afw.table.io`` files by treating it as a custom format, though it would need to be tied to the Bond schema.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, but it does provide a persistence format for its own schemas (either as part of a data file, or separately).
+  If there's a one-to-one mapping between persistable classes and schema structs, then the distinction will be preserved in the file.
+* it provides an API for lazy deserialization, although whether this allows partial reads in practice depends on the file format (specifically, on whether the data block for a subobject can be identified without parsing it).
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* the persisted form is not human-readable, though it can be converted to, e.g., a JSON representation
+
+
+.. _newpersistence_capn_proto:
+
+Option: Cap'n Proto
+-------------------
+
+.. _Cap'n Proto: https://capnproto.org/
+
+`Cap'n Proto`_ is a struct-like persistence library developed by the Sandstorm web platform.
+It defines persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+In C++, the schemas are typically compiled into proxy classes, whose data are then accessed using object member syntax.
+In Python, no code generation is required.
+Cap'n Proto uses a custom schema definition language that is easy to use correctly but also easy to use incorrectly.
+
+The library is designed for its persisted forms to be usable as in-memory objects, but that's not an option if we're using it as a general-purpose persistence framework.
+Serialization and deserialization may be slower than for other frameworks because it wasn't a design priority.
+
+Cap'n Proto meets only a few of our criteria:
+
+* it uses the MIT license
+* it has built-in support for C++, and there is a wrapper for Python.
+* it uses a proprietary format exclusively.
+* it does not support schema versioning.
+  New fields can be added safely, but must absolutely never be removed.
+* it cannot depersist external files.
+* it natively supports lists of arbitrary type, including numeric primitives and other lists.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+  However, this approach would probably make it impossible to make changes to the base class's schema because all fields need an continuously incremented ID number.
+* it supports several techniques for partial reads of large objects.
+* it has native support for object relationships, but only within the same file.
+* its persisted form is highly efficient, and therefore not human-readable.
+
+
+.. _newpersistence_cereal:
 
 Option: cereal
 --------------
@@ -404,6 +507,8 @@ cereal meets many, but not all, of our criteria:
 * it supports human-readable key-value pairs, as well as a "simplified" output format for human-readability.
 
 
+.. _newpersistence_flatbuffer:
+
 Option: FlatBuffer
 ------------------
 
@@ -433,10 +538,127 @@ FlatBuffer meets some of our criteria:
 * it has native support for object relationships, even among different persisted files.
 * its persisted form is highly efficient, and therefore not human-readable.
 
+
+.. _newpersistence_hdf5:
+
+Option: HDF5
+------------
+
+.. _HDF5: https://www.hdfgroup.org/
+
+While it's often associated with large numerical datasets, the filesystem-like `HDF5`_ file format can store arbitrary objects (compound datatypes, in its terminology).
+It defines compound datatypes in terms of other HDF5 datatypes, which need to be explicitly composed in C code and expressed as :class:`numpy.dtype` objects in Python code.
+
+Because it's not specifically designed for persistence of single objects, if we used HDF5 as a persistence framework, we would likely need to create an interface explicitly geared toward object persistence rather than forcing users to use HDF5's own APIs.
+
+HDF5 meets only a few of our criteria:
+
+* HDF5 for Python uses the 3-clause BSD license.
+  The HDF5 library itself uses a modified version of BSD 3-clause; I'm not sure whether it's still GPL-compatible.
+* it supports Python and C.
+  The Python API is in general cleaner, but does not support nested compound datatypes.
+* it uses a proprietary format exclusively.
+* it does not have any support for datatype versioning.
+* it cannot depersist old files.
+* it natively supports arrays of arbitrary type, with explicit support for image data.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* it supports partial reads only for subsets of array datasets, not for elements of a compound dataset.
+* it has native support for dataset relationships, but only between datasets in the same HDF5 file
+* its persisted form is not human-readable.
+
+
+.. _newpersistence_msgpack:
+
+Option: MsgPack
+---------------
+
+.. _MsgPack: https://msgpack.org/
+
+`MsgPack`_ is a tree-like persistence format by independent developer Sadayuki Furuhashi.
+It's sometimes described as a binary version of JSON.
+The C++ implementation provides several interfaces for persisting objects, including custom :cpp:class:`msgpack::adaptor::pack` and :cpp:class:`msgpack::adaptor::convert` callables, and macros that resemble Python's use of tuples for pickling.
+The Python implementation provides an API similar to Python's built-in JSON library.
+
+Because the MsgPack format handles object types in a very client-specific way, extra care may be needed to get persisted forms that interoperate between C++ and Python.
+
+MsgPack meets some of our criteria:
+
+* the C++ implementation uses the Boost 1.0 license, while the Python implementation uses the Apache 2.0 license.
+* it supports Python and C++.
+* it uses a proprietary format exclusively.
+* it does not have any support for datatype versioning; support would need to be included in the custom depersistence code.
+  The Python implementation has tools to manually parse the serialized form; I could not find a C++ equivalent.
+* it cannot depersist external files.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does) or through custom depersistence logic.
+* it does not support partial reads.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* its persisted form is highly efficient, and therefore not human-readable.
+
+
+.. _newpersistence_parquet:
+
+Option: Parquet
+---------------
+
+.. _Parquet: https://parquet.apache.org/documentation/latest/
+
+`Parquet`_ is a table-like persistence format provided by Apache.
+The format requires exactly one schema for each file, but multiple files (and therefore multiple schemas) can be combined into a logical dataset.
+The standard Parquet reader in both C++ and Python is Apache Arrow, which represents the persisted form as a ``Table`` object.
+Since Parquet was not designed specifically for object persistence, client code is fully responsible for serializing and deserializing an object from a ``Table``.
+
+Arrow's ``Table`` API is similar in spirit to ``lsst.afw.table``, encoding such concepts as non-contiguous tables ("chunked" types) and compound keys ("struct arrays").
+However, this means that it is not necessarily better-suited for object persistence than ``lsst.afw.table.io``.
+
+Parquet meets only a few of our criteria:
+
+* it uses the Apache 2.0 license.
+* it supports both Python and C++, although the C++ interface is not fully documented.
+* it is a proprietary format, with no built-in interoperability with JSON, YAML, etc.
+* it does not support versioning of persistence formats.
+* it does not allow depersistence of files written with the ``lsst.afw.table.io`` framework.
+* it natively supports arrays of arbitrary type, including numeric primitives.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+* its tables are column-oriented, so partial reads are fast in the limit of large numbers of rows.
+  For small tables, the Parquet format does not necessarily provide a speed improvement because most columns may be on the same disk page.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* its file format is heavily optimized and compressed, and therefore not human-readable.
+  The intermediate persisted form (a ``Table`` object) is moderately human-redable in Python.
+
+
+.. _newpersistence_pyrobuf:
+
+Option: Pyrobuf
+---------------
+
+.. _Pyrobuf: https://github.com/appnexus/pyrobuf
+
+`Pyrobuf`_ is an AppNexus emulation of Google's Protobuf, built for speed.
+Like Google's related library, :ref:`FlatBuffer <newpersistence_flatbuffer>`, Protobuf and Pyrobuf define persistence formats in terms of schemas, which may be composed (e.g., the user can declare that a :class:`lsst.geom.Box2I` is stored as a pair of :class:`lsst.geom.Point2I`, as long as there is a persisted form for :class:`~lsst.geom.Point2I`).
+The schemas are compiled into proxy classes, whose data are accessed using object member syntax.
+Unlike in FlatBuffer, the proxy classes must be explicitly serialized to and from byte streams.
+
+Pyrobuf meets some of our criteria:
+
+* it uses the Apache 2.0 license.
+* it  works only in Python, but the need for multiple translation layers means Pybind11-wrapped C++ classes can be easily accommodated, as long as their full state is visible from Python.
+* it natively supports the Google Protobuf format and JSON.
+  It's possible to write proxy classes to other formats, although writing the code to do so takes away much of the savings of using a third-party library.
+* it does not support versioning of persistence formats.
+* it can create proxy classes from ``lsst.afw.table.io`` with a custom translator.
+* it natively supports arrays of arbitrary type.
+* it does not natively handle polymorphism, though we could emulate it by storing an explicit class name (much like ``lsst.afw.table.io`` does).
+  Pyrobuf is fail-soft for addition or removal of fields, so we can add extra fields in subclasses.
+* it does not support partial reads of objects.
+* it does not natively store object references, though we could emulate them by introducing a unique object ID data type.
+* the serialized byte streams are not human-readable, although the proxy classes are
+
+
 Recommendations
 ---------------
 
-We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``, and are continuing our research into alternatives.
+We do not yet recommend any of these frameworks as a replacement for ``lsst.afw.table.io``.
 
 .. .. rubric:: References
 
